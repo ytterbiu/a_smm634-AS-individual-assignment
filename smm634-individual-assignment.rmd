@@ -1,0 +1,672 @@
+---
+title: "Modelling US Healthcare Utilisation and Expenditure using 2012 Medical Expenditure Panel Survey Data"
+subtitle: "SMM634 Individual Assignment 2025-26"
+author:
+  - "Benjamin Evans"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  bookdown::pdf_document2:
+    includes:
+      in_header: preamble.tex
+    number_sections: true
+    toc: true
+    latex_engine: xelatex
+    citation_package: natbib
+    keep_tex: true
+  # runtime: shiny
+  bookdown::html_document2:
+    self_contained: true
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: show
+    theme: 
+      bootswatch: lumen
+      base_font:
+        google: "Source Sans Pro"
+    highlight: tango
+    df_print: paged
+# fontsize: 10pt
+bibliography: references.bib
+---
+
+```{=latex}
+\newpage
+```
+
+```{=html}
+<h1>Information</h1>
+
+This R Markdown document was created as part of an individual assignment for SMM634 at Bayes Business School, City St George's, University of London in Term 1 2025-26.
+
+```
+
+```{r asthetic-header, include=FALSE, echo=FALSE}
+# ==============================================================================
+# SMM047 Probability and Mathematical Statistics (Subject CS1)
+# Individual Coursework
+# Author: Benjamin Evans
+# Professor:    Professor Rosalba Radice
+# Institution:  Bayes Business School - City St George's, University of London
+# Date:         05/Dec/2025
+# Description:  Term 1 individual project for Analytics Methods for Business. 
+# Dependencies:
+#   - TBC
+# ==============================================================================
+# 
+# References
+# file:///Users/eddy/Downloads/Copula%20Additive%20Distributional%20Regression%20Using%20R_25_11_25_12_44_26.pdf
+# 
+# 
+# 
+```
+
+```{r setup-knitr, include=FALSE, echo=FALSE}
+#----------------------- Initial setup (knitr settings) -----------------------#
+dir.create("fig", showWarnings = FALSE)
+
+# Defaults common to all outputs
+knitr::opts_chunk$set(
+  echo     = TRUE,
+  message  = FALSE,
+  warning  = FALSE,
+  fig.align = "center",
+  out.width = "100%",
+  fig.path  = "fig/",
+  dpi       = 300
+)
+
+# Output-specific settings
+if (knitr::is_latex_output()) {
+  knitr::opts_chunk$set(
+    fig.width = 6,
+    fig.height = 4,
+    dev = "pdf",
+    fig.pos = "ht",
+    out.extra = ""
+  )
+} else {
+  knitr::opts_chunk$set(
+    fig.width = 6,
+    fig.height = 4,
+    dev = "svglite"  # or "png"
+  )
+}
+```
+
+```{r setup-qol, include=FALSE, echo=FALSE}
+#----------------------------- Clean environment ------------------------------#
+rm(list = ls()) # Remove all objects
+graphics.off() # Close all graphical devices
+cat("\014") # Clean console
+```
+
+```{r load-dependencies, include=FALSE, echo=FALSE}
+#------------------- Load dependencies / external libraries -------------------#
+library(tidyverse)
+library(glmnet)  # Week 5: Shrinkage
+library(MASS)    # Week 8: NegBin
+library(ROCR)    # Week 7: Classification metrics
+library(GJRM)    # Copula
+
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(kableExtra)
+
+# for custom functions
+library(clipr) # for banner_comment function qol to annotate code
+```
+
+```{r setup-html-app, echo=FALSE, results='asis', eval=knitr::is_html_output(), purl=FALSE}
+#------------------------------ HTML link to app ------------------------------#
+library(htmltools)
+
+div(style = "background-color: #f8f9fa; padding: 20px; border: 1px solid #e9ecef; border-radius: 5px; text-align: center; margin-bottom: 30px;",
+  h3("Bonus Interactive Dashboard Available"),
+  p("This static report is accompanied by a live R Shiny dashboard allowing one to test different tickers, exclude specific outlier periods, and adjust bootstrap simulation parameters."),
+  a(href = "https://3enji.shinyapps.io/SMM047-202526-Group07-Dashboard/", 
+    target = "_blank",
+    class = "btn btn-primary", 
+    style = "background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;",
+    "Update this link!!!! Launch Interactive Dashboard")
+)
+```
+
+```{r custom-functions, include=FALSE, echo=FALSE}
+#---------------------------- Custom QOL functions ----------------------------#
+#####################################
+# function: banner comments (used to to section up code)
+# Usage: banner_comment("Element 1: data cleaning") -> then ctrl + v (or cmd+v)
+#####################################
+banner_comment <- function(text, width = 80, border = "#", fill = "-") {
+  txt <- paste0(" ", text, " ")
+  inner_width <- width - 2 * nchar(border)
+  banner_string <- ""
+  
+  if (inner_width <= nchar(txt)) {
+    banner_string <- paste0(border, txt, border)
+  } else {
+    pad_total <- inner_width - nchar(txt)
+    pad_left <- pad_total %/% 2
+    pad_right <- pad_total - pad_left
+    
+    banner_string <- paste0(
+      border,
+      strrep(fill, pad_left),
+      txt,
+      strrep(fill, pad_right),
+      border
+    )
+  }
+  
+  cat(banner_string, "\n")
+  # copy banner to allow direct pasting (requires clipr)
+  clipr::write_clip(banner_string)
+  # avoid [1] when printing if want to manually copy
+  invisible(banner_string)
+}
+#####################################
+# function: format p-values for text 
+# Usage (in-line): `r format_p_vals(ad_test_result$p.value)`
+# Usage (console): format_p_vals(ad_test_result$p.value)
+#####################################
+format_p_vals <- function(p) {
+  if (length(p) != 1L || is.na(p)) {
+    stop("Error! p must be a single non-missing value")
+  }
+  if (p > 1) {
+    stop("Error! Value greater than 1")
+  }
+  if (p < 0) {
+    stop("Error! Value less than 0")
+  }
+
+  if (p >= 0.01) {
+    paste0("= ", formatC(p, format = "f", digits = 2))
+  } else if (p >= 0.001) {
+    paste0("= ", formatC(p, format = "f", digits = 3))
+  } else {
+    "< 0.001"
+  }
+}
+#####################################
+# function: format confidence intervals for tables & text 
+# Usage (in-line): `r format_interval(el2_ci_normal_95[1], el2_ci_normal_95[2])`
+# Usage (console): format_interval(el2_ci_normal_95[1], el2_ci_normal_95[2])
+#####################################
+format_interval <- function(lower, upper, digits=3) {
+  paste0("[", 
+       formatC(lower, format = "f", digits = digits), ", ",
+       formatC(upper, format = "f", digits = digits), 
+       "]")
+}
+#####################################
+# function: format variable names in green in latex (& normal code in html)
+# Usage (in-line): TBI format_var_name
+# Usage (console): TBI format_var_name
+#####################################
+format_var_name <- function(x) {
+  if (knitr::is_latex_output()) {
+    # replace all "_" with "\_" in va name
+    paste0("\\greentt{", gsub("_", "\\\\_", x), "}")
+  } else {
+    # change to paste0("<code style='color:green'>", x, "</code>") for green
+    # paste0("`", x, "`")
+    paste0("<code style='color:green'>", x, "</code>")
+  }
+}
+```
+
+# Introduction
+
+## Using data from 
+
+Quoted from 'The data used in this study are available from the `GJRM.data` package in R.'
+@marramodelling2025
+
+MEPS source @ahrq_meps_2024 (foot note that meps.com was down...)
+
+<!-- # ```{r, code = readLines("MarraRadice2025-SuppCode.R")} -->
+<!-- # ``` -->
+
+
+We load the data given via Moodle text file: `meps.txt`...
+
+Data were analysed and the years of education were combined
+
+Healthcare data presents a unique frequency-severity challenge. The dataset
+provided includes `r format_var_name("dvisit")` (a count of physician
+encounters) and `r format_var_name("dvexpend")` (the total expenditure
+associated with those visits). These two variables are intrinsically linked:
+total expenditure is the accumulation of costs generated by each discrete visit.
+
+Standard econometric approaches often treat these as independent processes or
+model them sequentially. However, unobserved heterogeneity—such as a patient's
+latent health frailty or risk aversion—likely influences both the decision to
+seek care (frequency) and the intensity of treatment received (severity/cost).
+Ignoring this endogeneity can lead to biased estimates. The strategy outlined
+here validates GLMs as a baseline while positioning the Copula Additive Model as
+the superior, theoretically grounded alternative.
+
+
+
+```{r Load-data, include=FALSE, echo=FALSE}
+#---------------------------- Download / Load data ----------------------------#
+meps <- meps_raw <- readr::read_delim("meps.txt", delim = "\t")
+
+meps %>%
+  summarise(across(where(is.numeric),
+                   ~ paste0(min(.x, na.rm = TRUE), " – ", max(.x, na.rm = TRUE))))
+
+meps <- meps_raw %>%
+  mutate(
+    # --- 1. standard ordinal / nominal factors ---
+    general = factor(
+      general,
+      levels = 1:5,
+      labels = c("Exc", "VGood", "Good", "Fair", "Poor")
+    ),
+    mental = factor(
+      mental,
+      levels = 1:5,
+      labels = c("Exc", "VGood", "Good", "Fair", "Poor")
+    ),
+    region = factor(
+      region,
+      levels = 1:4,
+      labels = c("Northeast", "Midwest", "South", "West")
+    ),
+    ethnicity = factor(
+      ethnicity,
+      levels = 1:4,
+      labels = c("White", "Black", "NativeAm", "Others")
+    ),
+    # --- 2. binary factors (0/1 mappings) ---
+    gender = factor(gender, levels = c(0, 1), labels = c("Female", "Male")),
+    hypertension = factor(
+      hypertension,
+      levels = c(0, 1),
+      labels = c("No", "Yes")
+    ),
+    hyperlipidemia = factor(
+      hyperlipidemia,
+      levels = c(0, 1),
+      labels = c("No", "Yes")
+    ),
+    # --- 3. education categories to bin years ---
+    # add 'education_cat' for categorical analysis.
+    education_cat = case_when(
+      education < 12 ~ "< High School",
+      education == 12 ~ "High School",
+      education > 12 ~ "College +",
+      TRUE ~ NA_character_
+    ),
+    education_cat = factor(
+      education_cat,
+      levels = c("< High School", "High School", "College +")
+    ),
+    education_cat_detailed = case_when(
+      education < 12 ~ "< High School",
+      education == 12 ~ "High School",
+      education > 12 ~ "College +",
+      TRUE ~ NA_character_
+    ),
+    education_cat_detailed = factor(
+      education_cat,
+      levels = c("< High School", "High School", "College +")
+    ),
+    # --- 4. Outcomes ---
+    has_expense = ifelse(dvexpend > 0, 1, 0)
+  )
+
+# Verify the changes
+glimpse(meps)
+summary(meps)
+
+mean_visit <- mean(meps$dvisit)
+var_visit <- var(meps$dvisit)
+
+# Create a subset for patients with strictly positive expenditure
+meps_pos <- subset(meps, dvexpend > 0)
+
+# Calculate the values you need for your text
+n_total <- nrow(meps)
+n_zero_cost <- sum(meps$dvexpend == 0)
+n_pos_cost  <- sum(meps$dvexpend > 0)
+pct_zero    <- (n_zero_cost / n_total) * 100
+
+# Optional: You can do the same for visits if needed
+n_zero_visit <- sum(meps$dvisit == 0)
+```
+
+```{r intro-table, echo = FALSE}
+get_cat_row <- function(data, var_name, display_name) {
+  t <- table(data[[var_name]])
+  props <- prop.table(t)
+  
+  clean_labels <- gsub("^[0-9]:\\s*", "", names(props))
+  vals <- formatC(as.numeric(props), format = "f", digits = 2)
+
+  tibble(
+    Variable = format_var_name(display_name),
+    Description = paste(clean_labels, collapse = " / "),
+    Frequency = paste(vals, collapse = " / ")
+  )
+}
+
+get_num_row <- function(
+  data,
+  var_name,
+  display_name,
+  digits = 2,
+  big_mark = "",
+  show_mean = FALSE
+) {
+  x <- data[[var_name]]
+
+  # Helper: formatC wrapper
+  fmt <- function(n) {
+    formatC(n, format = "f", digits = digits, big.mark = big_mark)
+  }
+
+  # Calculate Median [IQR]
+  med <- median(x, na.rm = TRUE)
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+
+  # Build Base Tibble
+  out <- tibble(
+    Variable = format_var_name(display_name),
+    Description = display_name,
+    `Median [IQR]` = paste0(fmt(med), " [", fmt(q1), " – ", fmt(q3), "]")
+  )
+
+  # Optional: Add Mean (SD) if requested
+  if (show_mean) {
+    m <- mean(x, na.rm = TRUE)
+    s <- sd(x, na.rm = TRUE)
+    out <- out %>%
+      mutate(
+        `Mean (SD)` = paste0(fmt(m), " (", fmt(s), ")"),
+        .before = `Median [IQR]`
+      )
+  }
+
+  return(out)
+}
+# --- 2. Build Dataframes ---
+
+# Table 1: Categorical
+tab_cat <- bind_rows(
+  get_cat_row(meps, "gender", "gender"),
+  get_cat_row(meps, "ethnicity", "ethnicity"),
+  get_cat_row(meps, "education_cat", "education_cat") %>%
+    mutate(Description = "Pre high school / High school / College+"),
+  get_cat_row(meps, "region", "region"),
+  get_cat_row(meps, "hypertension", "hypertension"),
+  get_cat_row(meps, "hyperlipidemia", "hyperlipidemia")
+)
+
+# Table 2: Numerical
+tab_num <- bind_rows(
+  get_num_row(meps, "bmi", "bmi") %>% mutate(Description = "Body mass index"),
+  get_num_row(meps, "age", "age") %>% mutate(Description = "Age"),
+  get_num_row(meps, "education", "education") %>%
+    mutate(Description = "Years of education"),
+  # Special Formatting for Income
+  get_num_row(meps, "income", "income", digits = 0, big_mark = ",") %>%
+    mutate(Description = "Income (USD)"),
+  get_num_row(meps, "ndvisit", "ndvisit") %>%
+    mutate(Description = "Non-doctor visits"),
+  get_num_row(meps, "dvexpend", "dvexpend") %>%
+    mutate(Description = "Doctor expenditure")
+)
+```
+
+```{r initialOverviewCat, echo=FALSE}
+tab_cat %>%
+  kbl(
+    caption = "MEPs categorical variables",
+    col.names = c("Variable", "Categories", "Relative Frequency"),
+    booktabs = TRUE,
+    escape = FALSE,
+    align = c("l", "l", "l"),
+    linesep = c("", "", "\\addlinespace") 
+  ) %>%
+  kable_styling(latex_options = "hold_position") %>%
+  row_spec(0, bold = TRUE)
+```
+```{r initialOverviewNum, echo=FALSE}
+tab_num %>%
+  kbl(
+    caption = "MEPs quantitative variables, including a description, mean (SD), and median [IQR].",
+    booktabs = TRUE,
+    escape = FALSE,
+    align = c("l", "l", "r"),
+    linesep = c("", "", "\\addlinespace")
+  ) %>%
+  kable_styling(latex_options = "hold_position") %>%
+  column_spec(1, width = "3cm") %>%
+  row_spec(0, bold = TRUE)
+```
+
+```{r process, echo=FALSE}
+
+# 2. Variable Summary Table (Requested Kable)
+var_summary <- tibble(
+  Variable = names(meps_raw),
+  Type = c("Ordinal Factor", "Ordinal Factor", "Continuous", "Continuous", "Continuous", 
+           "Binary Factor", "Nominal Factor", "Categorical", "Nominal Factor", 
+           "Binary Factor", "Binary Factor", "Count", "Count", "Continuous", "Continuous"),
+  `Raw Range/Levels` = c("1-5", "1-5", "9.4-68.2", "0-Max", "18-65", "0/1", "1-4", "0-17", "1-4", "0/1", "0/1", "0-29", "0-29", "0-Max", "0-Max"),
+  `Analysis Treatment` = c("Factor (Ref: Exc)", "Factor (Ref: Exc)", "Linear/Spline", "Linear (Log?)", "Linear", 
+                           "Factor (Ref: Female)", "Factor (Ref: White)", "Factor (17 levels)", "Factor (Ref: NE)", 
+                           "Factor (Ref: No)", "Factor (Ref: No)", "Response (Count)", "Response (Count)", "Response (Gamma)", "Response")
+)
+
+# Display Table
+kbl(
+  var_summary, 
+  caption = "MEPS Variable Definitions and Analysis Treatment",
+  booktabs = TRUE
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover")
+)
+```
+
+
+# Model selection
+
+## Health-care expenditure
+
+<!-- Gamma GLM with Log Link: This is the standard "core curriculum" approach for -->
+<!-- positive, skewed cost data (as seen in w08_glm.pdf). -->
+<!-- Lasso (Shrinkage): Use this for variable selection if you have many predictors -->
+<!-- (as per w05_ShrinkageMethods.pdf). -->
+
+<!-- Differentiation: Explicitly state you are assuming independence from utilization -->
+<!-- for the sake of the initial model, which the paper does not. -->
+
+```{r model selection}
+# Create Model Matrix (handles dummy creation automatically)
+# We exclude the intercept column [-1] because glmnet adds its own
+X <- model.matrix(dvexpend ~ age * gender + bmi * hypertension + 
+                    general + mental + ethnicity + region + education_cat, data = meps)[, -1]
+y <- meps$dvexpend
+
+# Fit Lasso with Cross-Validation
+cv_lasso <- cv.glmnet(X, y, alpha = 1) 
+plot(cv_lasso)
+
+# Extract Active Predictors
+coef(cv_lasso, s = "lambda.1se")
+
+# Model A: Poisson GLM
+m_pois <- glm(dvisit ~ age + gender + general + ethnicity + region + hypertension, 
+              family = poisson(link = "log"), data = meps)
+
+# Model B: Negative Binomial (Addressing Overdispersion)
+m_nb <- glm.nb(dvisit ~ age + gender + general + ethnicity + region + hypertension, 
+               data = meps)
+
+# Comparison
+AIC(m_pois, m_nb) # Lower AIC wins (likely m_nb)
+```
+
+```{r model-expendature}
+m_probit <- glm(has_expense ~ age + gender + general, 
+                family = binomial(link = "probit"), data = meps)
+
+m_gamma <- glm(dvexpend ~ age + gender + general + ethnicity, 
+               family = Gamma(link = "log"), 
+               data = subset(meps, dvexpend > 0))
+```
+
+The dataset consists of `r format(n_total, big.mark=",")` total observations.
+
+An initial inspection of the expenditure data reveals a significant mass of zero values. Specifically, `r format(n_zero_cost, big.mark=",")` patients (`r round(pct_zero, 1)`% of the sample) generated no healthcare expenditure during the survey period.
+
+To model the amount of expenditure, a filtered dataset of the remaining `r format(n_pos_cost, big.mark=",")` patients who incurred positive costs was used.
+
+```{r joint-model}
+# eq_visits <- dvisit ~ age + gender + general + mental + ethnicity + region + hypertension
+# 
+# # Equation 2: Expenditure (Continuous > 0)
+# eq_expend <- dvexpend ~ age + gender + general + mental + ethnicity
+# 
+# # Define the list of equations
+# eq_list <- list(eq_visits, eq_expend)
+# 
+# # Fit the Joint Model
+# # margins: "NBI" for count, "GA" for cost
+# # Model "B" stands for Bivariate
+# joint_model <- gjrm(formula = eq_list, 
+#                     data = meps,
+#                     margins = c("NBI", "GA"), 
+#                     model = "B", 
+#                     copula = "N") # Try "J0" for tail dependence
+# 
+# # Summary
+# summary(joint_model)
+```
+
+```{=latex}
+\newpage
+\section*{Appendices}
+\addcontentsline{toc}{section}{Appendices}
+```
+
+## Health-care utilisation
+
+# Results
+
+## Summary 
+
+## Interpretation
+
+# Discussion 
+
+## Analysis & evaluation
+
+Limitations, analysis and evaluations 
+
+Mention connections between the two here - it's heavily embedded
+
+## Expansion 
+
+# (APPENDIX) Appendices {-} 
+
+<!-- Placeholder code from CS1 project -->
+<!-- # Bonus exploration: R Shiny dashboard {#apd-dashboard} -->
+
+<!-- Because there is no corner of our souls we would not turn over for extra credit, -->
+<!-- we conducted an additional exploration of an area for future study identified in -->
+<!-- the conclusion.  Rather than re-running the analyses for multiple indices, we -->
+<!-- developed a dashboard that allows the same workflow to be applied quickly to -->
+<!-- other stock market indices. -->
+
+<!-- As R Markdown was used to write up this project, one natural approach would have -->
+<!-- been simply to update the ticker symbol and render a new R Markdown document for -->
+<!-- each index. While this would work in principle, it is not fully satisfactory: -->
+<!-- the document takes time to render (particularly with 50,000-repetition bootstrap -->
+<!-- simulations) and each iteration would require manual narrative adjustments. To -->
+<!-- address this, we developed an interactive R Shiny dashboard, hosted on -->
+<!-- https://www.shinyapps.io/, which provides a dynamic interface for rapid -->
+<!-- comparative analysis. The dashboard is available via: -->
+
+<!-- - https://3enji.shinyapps.io/SMM047-202526-Group07-Dashboard/ -->
+
+<!-- Figure \@ref(fig:appendixdashboard1) shows the dashboard start page. Clicking -->
+<!-- Run Analysis loads information for the entered Yahoo Finance ticker (with the -->
+<!-- default set to `^IXIC`). -->
+
+<!-- Figure \@ref(fig:appendixdashboard2) presents an annotated view of the user -->
+<!-- interface.  The dashboard includes (1) a Ticker Selection field that accepts -->
+<!-- standard Yahoo Finance symbols; (2–4) Data Cleaning controls, where users can -->
+<!-- define the study range and mask a specific outlier period (2020-02-24 to 2020-03-23 in the case of our report); (5) Bootstrap Settings, -->
+<!-- allowing users to choose the number of repetitions (to balance accuracy and  -->
+<!-- computation time); and (6) Analysis Tabs, which display the cleaned data, -->
+<!-- normality tests, and independence diagnostics. -->
+
+<!-- Future development may include support for multiple exclusion windows and -->
+<!-- optimisation of the bootstrapping algorithm, which is currently -->
+<!-- resource-intensive for large numbers of repetitions. While the present -->
+<!-- implementation mirrors the project’s core analysis, there is also scope to -->
+<!-- extend this to incorporate additional methods, such as assessing normality using -->
+<!-- bootstrapped kurtosis estimates and adding functionality to vary the m value in -->
+<!-- the m-out-of-n bootstrap (currently hard coded as m=13). In addition to the -->
+<!-- adjusted closing price used in this project, future enhancements could also -->
+<!-- allow users to select alternative price series (for example, open, close, or -->
+<!-- intraday mid prices) and different aggregation frequencies (for example, daily -->
+<!-- or weekly) within the app. -->
+
+
+```{=latex}
+\clearpage
+\newpage
+```
+
+# Reproducibility, accessibility & declarations (Gen-AI & word count)
+<!-- BE note: taken out as we are submitting R file separately -->
+<!-- Use: `knitr::purl("cs1-group07.rmd", documentation = 0)` to generate r file -->
+<!-- Use: `tools::showNonASCIIfile("cs1-group07.rmd")` to debug -->
+<!-- ## R Code Documentation -->
+
+## Reproducibility & accessibility 
+
+An accessible HTML version of this report is available via a public GitHub page:
+
+- !TBI
+
+This report was created in R Markdown. The source code is open source and is
+available via:
+
+- !TBI
+
+Changes made to this document were tracked using Git and are also available via
+the same repository
+(!TBI). 
+
+A bonus interactive dashboard is available via:
+
+- TBI
+
+The source code for this dashboard is available via the project repository: 
+
+- TBI
+
+# R Code
+
+```{=latex}
+\small
+```
+```{r r-code-appendix, ref.label = grep("^setup-", knitr::all_labels(), value = TRUE, invert = TRUE), echo = TRUE, eval = FALSE}
+```
+```{=latex}
+\normalsize
+```
+
+---
