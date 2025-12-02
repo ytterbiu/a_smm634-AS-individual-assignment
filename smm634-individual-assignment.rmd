@@ -221,8 +221,6 @@ format_var_name <- function(x) {
 
 # Introduction
 
-
-
 ```{r Load-data, include=FALSE, echo=FALSE}
 #---------------------------- Download / Load data ----------------------------#
 meps <- meps_raw <- readr::read_delim("meps.txt", delim = "\t")
@@ -269,14 +267,14 @@ meps <- meps_raw %>%
     # --- 3. education categories to bin years ---
     # add 'education_cat' for categorical analysis.
     education_cat = case_when(
-      education < 12 ~ "< High School",
-      education == 12 ~ "High School",
-      education > 12 ~ "College +",
+      education < 12 ~ "Less than High School",
+      education >= 12 & education < 13 ~ "High School Graduate",
+      education >= 13 ~ "College +",
       TRUE ~ NA_character_
     ),
     education_cat = factor(
       education_cat,
-      levels = c("Less than High School", "High School", "College +")
+      levels = c("Less than High School", "High School Graduate", "College +")
     ),
     education_cat_detailed = case_when(
       education < 12 ~ "Less than High School",
@@ -339,6 +337,39 @@ n_zero_visit <- sum(meps_clean$dvisit == 0)
 # Verify the changes
 glimpse(meps_clean)
 summary(meps_clean)
+```
+
+
+```{r check-na, echo=FALSE, purl=FALSE, include=FALSE}
+# quick check
+if (TRUE == TRUE) {
+  # Calculate counts and percentages
+  check <- meps
+  na_summary <- check %>%
+    summarise(across(everything(), ~ sum(is.na(.)))) %>%
+    pivot_longer(
+      cols = everything(),
+      names_to = "Variable",
+      values_to = "Missing Count"
+    ) %>%
+    mutate(
+      `Missing %` = (`Missing Count` / nrow(check)) * 100,
+      `Missing %` = paste0(formatC(`Missing %`, format = "f", digits = 2), "%")
+    ) %>%
+    # Filter to show only variables with missing data (Optional - remove filter to see all)
+    # filter(`Missing Count` > 0) %>%
+    arrange(desc(`Missing Count`)) # Sort by most missing
+
+  # Render Table
+  na_summary %>%
+    kbl(
+      caption = "Summary of missing values (NaN) by variable in the raw dataset.",
+      booktabs = TRUE,
+      align = c("l", "r", "r")
+    ) %>%
+    kable_styling(latex_options = "hold_position") %>%
+    row_spec(0, bold = TRUE)
+}
 ```
 
 ```{r intro-table, echo = FALSE}
@@ -461,7 +492,7 @@ tab_cat_comp %>%
     booktabs = TRUE,
     escape = FALSE,
     align = c("l", "l", "c", "c"),
-    linesep = cat_linesep
+    linesep = c("","","", "\\addlinespace")
   ) %>%
   kable_styling(latex_options = c("hold_position", "repeat_header")) %>%
   collapse_rows(columns = 1, valign = "middle", latex_hline = "major")
@@ -540,10 +571,11 @@ tab_num_comp <- bind_rows(
 # Render Numerical Table
 tab_num_comp %>%
   kbl(
-    caption = "Comparison of quantitative variables (Mean & SD).",
+    caption = "Comparison of quantitative variables (Mean and SD).",
     col.names = c("Variable", "Description", header_full, header_pos),
     booktabs = TRUE,
     escape = FALSE,
+    linesep = c("","","", "\\addlinespace"),
     align = c("l", "l", "r", "r")
   ) %>%
   kable_styling(latex_options = "hold_position") %>%
