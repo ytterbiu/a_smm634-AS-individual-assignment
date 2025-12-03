@@ -93,6 +93,10 @@ if (knitr::is_latex_output()) {
     dev = "svglite"  # or "png"
   )
 }
+
+if (knitr::is_latex_output()) {
+  cat("\\renewcommand{\\arraystretch}{1.1}\n")
+}
 ```
 
 ```{r setup-qol, include=FALSE, echo=FALSE}
@@ -110,10 +114,13 @@ library(MASS)
 library(ROCR)    
 library(GJRM)    # Copula
 
+library(broom)
+
 library(ggplot2)
 library(dplyr)
 library(patchwork)
 library(kableExtra)
+library(stringr)
 
 # for custom functions
 library(clipr) # for banner_comment function qol to annotate code
@@ -133,6 +140,8 @@ div(style = "background-color: #f8f9fa; padding: 20px; border: 1px solid #e9ecef
     "Update this link!!!! Launch Interactive Dashboard")
 )
 ```
+
+# Custom functions (to hide in final version)
 
 ```{r custom-functions, include=FALSE, echo=FALSE}
 #---------------------------- Custom QOL functions ----------------------------#
@@ -204,8 +213,7 @@ format_interval <- function(lower, upper, digits=3) {
 }
 #####################################
 # function: format variable names in green in latex (& normal code in html)
-# Usage (in-line): TBI format_var_name
-# Usage (console): TBI format_var_name
+# Usage (in-line): TBI `r format_var_name("dvisit")`
 #####################################
 format_var_name <- function(x) {
   if (knitr::is_latex_output()) {
@@ -229,18 +237,32 @@ meps %>%
   summarise(across(where(is.numeric),
                    ~ paste0(min(.x, na.rm = TRUE), " – ", max(.x, na.rm = TRUE))))
 
+edu_levels <- c(
+  "Less than High School", 
+  "High School Graduate", 
+  "College+"
+)
+
+edu_levels_detailed <- c(
+  "Less than High School", 
+  "High School Graduate", 
+  "Some College", 
+  "College Graduate", 
+  "Post-Graduate"
+)
+
 meps <- meps_raw %>%
   mutate(
     # --- 1. standard ordinal / nominal factors ---
     general = factor(
       general,
       levels = 1:5,
-      labels = c("Exc", "VGood", "Good", "Fair", "Poor")
+      labels = c("Excellent", "VGood", "Good", "Fair", "Poor")    
     ),
     mental = factor(
       mental,
       levels = 1:5,
-      labels = c("Exc", "VGood", "Good", "Fair", "Poor")
+      labels = c("Excellent", "VGood", "Good", "Fair", "Poor")
     ),
     region = factor(
       region,
@@ -264,7 +286,7 @@ meps <- meps_raw %>%
       levels = c(0, 1),
       labels = c("No", "Yes")
     ),
-    # --- 3. education categories to bin years ---
+    # --- education categories 
     # add 'education_cat' for categorical analysis.
     education_cat = case_when(
       education < 12 ~ "Less than High School",
@@ -298,6 +320,16 @@ meps <- meps_raw %>%
     # --- 4. Outcomes ---
     has_expense = ifelse(dvexpend > 0, 1, 0)
   )
+
+check_levels <- list(
+  Gen = levels(meps$general),
+  Men = levels(meps$mental),
+  Eth = levels(meps$ethnicity),
+  Reg = levels(meps$region),
+  Edu = levels(meps$education_cat_detailed)
+)
+
+print(check_levels)
 
 meps_all <- meps
 # exclude individuals with missing information
@@ -576,7 +608,7 @@ tab_num_comp %>%
     booktabs = TRUE,
     escape = FALSE,
     linesep = c("","","", "\\addlinespace"),
-    align = c("l", "l", "r", "r")
+    align = c("l", "l", "l", "l")
   ) %>%
   kable_styling(latex_options = "hold_position") %>%
   column_spec(1, width = "3cm") %>%
@@ -585,7 +617,12 @@ tab_num_comp %>%
 
 # Model selection
 
-## Health-care expenditure
+
+Healthcare expenditure data is characterized by two distinct statistical
+hurdles: a skewness in positive costs (a few patients incur massive costs) and a
+structural mass of zeros (many patients seek no care at all). In this dataset,
+`r format(n_zeros, big.mark=",")` individuals (`r round(pct_zero, 1)`%) incurred
+zero costs.
 
 Model Selection for Healthcare Expenditure: Given the semi-continuous nature of the expenditure data, we employed a Two-Part model. For the second part (modeling the amount of expenditure for those with positive costs), we utilized Lasso regression (L1 regularization) to select the most predictive features.
 
@@ -617,13 +654,15 @@ X_pos <- model.matrix(
     mental + 
     ethnicity + 
     region + 
-    education_cat, 
+    education_cat +
+    education_cat_detailed,
   data = meps_pos
 )[, -1]
 
 # --- 3. Define Y as LOG(Expenditure) ---
 # This normalizes the skewed cost data
 y_pos <- log(meps_pos$dvexpend)
+# y_pos <- (meps_pos$dvexpend)
 
 # --- 4. Fit Lasso ---
 set.seed(123) # For reproducibility
@@ -637,10 +676,9 @@ plot(cv_lasso_exp)
 coef(cv_lasso_exp, s = "lambda.1se")
 
 m_gamma_final <- glm(
-  dvexpend ~ age + gender + hypertension + general + mental + 
-             ethnicity + region + education_cat,
+  dvexpend ~ age + gender + general + mental + region + education_cat_detailed,
   family = Gamma(link = "log"),
-  data = meps_pos  # Remember: strictly positive data only!
+  data = meps_pos 
 )
 
 summary(m_gamma_final)
@@ -650,6 +688,11 @@ par(mfrow=c(2,2))
 plot(m_gamma_final)
 par(mfrow=c(1,1))
 
+```
+
+```{r plot-residuals, fig.height=5.4, fig.height = 6, fig.pos='!ht', fig.cap = "Idk bro I just want to sleep."}
+par(mfrow=c(2,2))
+plot(m_gamma_final)
 ```
 
 ```{r model selection}
@@ -687,6 +730,11 @@ m_nb <- glm.nb(dvisit ~ age + gender + general + ethnicity + region + hypertensi
 
 # Comparison
 AIC(m_pois, m_nb) # Lower AIC wins (likely m_nb)
+```
+
+```{r plot-residuals2, fig.height=5.4, fig.height = 6, fig.pos='!ht', fig.cap = "Idk bro I just want to sleep."}
+par(mfrow=c(2,2))
+plot(m_nb)
 ```
 
 ```{r model-expendature}
@@ -728,13 +776,540 @@ To model the amount of expenditure, a filtered dataset of the remaining `r forma
 
 ```{=latex}
 \newpage
-\section*{Appendices}
-\addcontentsline{toc}{section}{Appendices}
 ```
+
+## Health-care expenditure
+
+```{r from-individual-draft, echo=FALSE, include=FALSE}
+# #################### MODELLING
+# 1. Define Y as the Binary Outcome (0 or 1)
+y_binary <- meps_clean$has_expense
+
+# 2. Define X (Model Matrix using the FULL dataset, not just positive)
+X_full <- model.matrix(
+  has_expense ~ . -
+    dvisit -
+    dvexpend -
+    # ndvisit -
+    ndvexpend -
+    education -
+    education_cat,
+  data = meps_clean
+)[, -1]
+# X_full <- model.matrix(
+#   has_expense ~ age +
+#     gender +
+#     general +
+#     mental +
+#     ethnicity +
+#     region +
+#     hypertension +
+#     bmi,
+#   data = meps_clean
+# )[, -1]
+
+# 3. Fit Lasso with family = "binomial" (Logistic)
+set.seed(123)
+cv_lasso_binary <- cv.glmnet(X_full, y_binary, alpha = 1, family = "binomial")
+
+# 4. Plot and Check
+plot(cv_lasso_binary)
+print(coef(cv_lasso_binary, s = "lambda.1se"))
+
+## now for second part
+##
+##
+y_pos <- log(meps_pos$dvexpend)
+
+X_pos <- model.matrix(
+  dvexpend ~ . -
+    dvisit -
+    dvexpend -
+    ndvisit - # not assumed to affect once you are in doctor's office
+    ndvexpend -
+    has_expense -
+    education -
+    education_cat,
+  data = meps_pos
+)[, -1]
+
+cv_lasso_pos <- cv.glmnet(X_pos, y_pos, alpha = 1)
+
+# 5. Plot to see the error curve
+plot(cv_lasso_pos)
+
+# 6. Check Active Predictors
+coef(cv_lasso_pos, s = "lambda.1se")
+
+##############################
+##############################
+##############################
+# Actual models
+# Part 1: Probit Model for Probability of Any Expense
+# We use the FULL dataset (meps_clean) because we are predicting Yes/No for everyone.
+
+m_part1 <- glm(
+  has_expense ~ age +
+    gender +
+    bmi + # Selected by Lasso (unlike Part 2)
+    general +
+    mental + # Health Status
+    region +
+    ethnicity + # Demographics
+    hypertension +
+    hyperlipidemia + # Chronic Conditions
+    income + # SES
+    ndvisit + # Utilization Proxy
+    education_cat_detailed, # Education
+  family = binomial(link = "probit"), # Probit link
+  data = meps_clean
+)
+
+summary(m_part1)
+
+
+m_part2 <- glm(
+  dvexpend ~ age +
+    gender +
+    general +
+    mental + # Health Status
+    region + # Location
+    hypertension +
+    hyperlipidemia + # Chronic Conditions
+    income + # SES
+    ndvisit + # Utilization Proxy
+    education_cat_detailed, # Education
+  family = Gamma(link = "log"),
+  data = meps_pos
+)
+
+summary(m_part2)
+```
+
+```{r coef-table-two-part, results='asis', message=FALSE, warning=FALSE}
+# --- Helper Function ---
+format_p_vec <- function(x) {
+  x_num <- as.numeric(x)
+  out <- rep("", length(x_num))
+  non_na <- !is.na(x_num)
+  vals <- x_num[non_na]
+  out[non_na] <- ifelse(vals < 0.001, "<0.001", sprintf("%.3f", vals))
+  out
+}
+
+# --- 1. Tidy & Join ----------------------------------------------------------
+pt1 <- broom::tidy(m_part1) %>%
+  select(term, estimate, std.error, p.value) %>%
+  rename(pt1_est = estimate, pt1_se = std.error, pt1_p = p.value)
+
+pt2 <- broom::tidy(m_part2) %>%
+  select(term, estimate, std.error, p.value) %>%
+  rename(pt2_est = estimate, pt2_se = std.error, pt2_p = p.value)
+
+raw_data <- full_join(pt1, pt2, by = "term")
+
+# --- 2. Create Groups and Clean Labels ---------------------------------------
+
+clean_data <- raw_data %>%
+  mutate(
+    # A. Define the Group Names
+    var_group = case_when(
+      term == "(Intercept)" ~ "Intercept",
+      str_starts(term, "age") ~ "Age", 
+      str_starts(term, "bmi") ~ "BMI",
+      str_starts(term, "education") ~ "Education (ref: Less than High School)",
+      str_starts(term, "ethnicity") ~ "Ethnicity (ref: White)",
+      str_starts(term, "gender")    ~ "Gender (ref: Female)",
+      str_starts(term, "general")   ~ "General Health (ref: Excellent)", 
+      str_starts(term, "hyperlipidemia") ~ "Hyperlipidemia", 
+      str_starts(term, "hypertension")   ~ "Hypertension",
+      str_starts(term, "income")    ~ "Income (USD)",
+      str_starts(term, "mental")    ~ "Mental Health (ref: Excellent)",
+      str_starts(term, "ndvisit")   ~ "Number of non-doctor visits",
+      str_starts(term, "region")    ~ "Region (ref: Northeast)",
+      TRUE ~ "Other"
+    ),
+    
+    # B. Define the Row Labels (stripping prefixes)
+    label = case_when(
+      term == "(Intercept)" ~ "(Intercept)",
+      str_starts(term, "education_cat_detailed") ~ str_remove(term, "education_cat_detailed"),
+      str_starts(term, "ethnicity") ~ str_remove(term, "ethnicity"),
+      str_starts(term, "gender")    ~ str_remove(term, "gender"),
+      str_starts(term, "general")   ~ str_remove(term, "general"),
+      str_starts(term, "hyperlipidemia") ~ str_remove(term, "hyperlipidemia"),
+      str_starts(term, "hypertension")   ~ str_remove(term, "hypertension"),
+      str_starts(term, "mental")    ~ str_remove(term, "mental"),
+      str_starts(term, "region")    ~ str_remove(term, "region"),
+      TRUE ~ term
+    ),
+    
+    # C. CUSTOM ORDERING LOGIC (The "Fix")
+    
+    # Create a ranking variable for the specific rows you want ordered logically
+    # Lower number = appears first in the group
+    label_rank = case_when(
+      # Education Order
+      label == "High School Graduate" ~ 1,
+      label == "Some College"         ~ 2,
+      label == "College Graduate"     ~ 3,
+      label == "Post-Graduate"        ~ 4,
+      
+      # Health Order (Poor -> VGood)
+      label == "Poor"  ~ 1,
+      label == "Fair"  ~ 2,
+      label == "Good"  ~ 3,
+      label == "VGood" ~ 4,
+      
+      # Default for everything else (alphabetical sorts equal ranks)
+      TRUE ~ 10 
+    )
+  ) 
+
+# --- 3. Enforce the Group Order ----------------------------------------------
+
+# Identify all unique groups in the data
+all_groups <- unique(clean_data$var_group)
+
+# Define the specific top priority groups
+top_groups <- c(
+  "Intercept", 
+  "General Health (ref: Exc)", 
+  "Mental Health (ref: Exc)"
+)
+
+# Combine: Top groups + the rest (sorted alphabetically)
+final_group_order <- c(
+  top_groups, 
+  sort(setdiff(all_groups, top_groups))
+)
+
+# Apply the sorting
+sorted_data <- clean_data %>%
+  # 1. Turn var_group into a factor with our custom order
+  mutate(var_group = factor(var_group, levels = final_group_order)) %>%
+  # 2. Arrange by Group, then by our Custom Rank, then Alphabetically
+  arrange(var_group, label_rank, label) %>%
+  # 3. Format numbers
+  mutate(
+    pt1_est = ifelse(is.na(pt1_est), "", sprintf("%.3f", pt1_est)),
+    pt1_se  = ifelse(is.na(pt1_se),  "", sprintf("%.3f", pt1_se)),
+    pt2_est = ifelse(is.na(pt2_est), "", sprintf("%.3f", pt2_est)),
+    pt2_se  = ifelse(is.na(pt2_se),  "", sprintf("%.3f", pt2_se)),
+    pt1_p   = format_p_vec(pt1_p),
+    pt2_p   = format_p_vec(pt2_p)
+  )
+
+# --- 4. Prepare for Kable ----------------------------------------------------
+
+# Extract indices for grouping
+group_indices <- sorted_data %>%
+  mutate(row = row_number()) %>%
+  group_by(var_group) %>%
+  summarise(start = min(row), end = max(row)) %>%
+  arrange(start) # Ensure indices follow the table order
+
+# Select final columns (exclude helper columns)
+kable_data <- sorted_data %>% 
+  select(label, pt1_est, pt1_se, pt1_p, pt2_est, pt2_se, pt2_p)
+
+colnames(kable_data) <- c(
+  "Term",
+  "Estimate", "Std. Error", "p-value",
+  "Estimate ", "Std. Error ", "p-value "
+)
+
+# --- 5. Render ---------------------------------------------------------------
+header_labels <- c(
+  " " = 1, 
+  "Pt 1: Prob. of any expense" = 3, 
+  "Pt 2: Expenditure amount"   = 3
+)
+
+beta_symbol <- ifelse(knitr::is_latex_output(), "$\\hat{\\beta}$", "&beta;")
+
+caption_text <- paste0(
+  "Estimated coefficients (",
+  beta_symbol,
+  "), standard errors, and p-values for the two-part MEPS expenditure model. A Probit and Gamma GLM (log link) were used in combination to model the probability of incurring any expense (pt 1: Probit) and the expenditure among health care users for patients who incurred a healthcare expenditure (pt 2: Gamma GLM). Variable selection was performed independently for each step."
+)
+
+
+kbl_obj <- knitr::kable(
+  kable_data,
+  format   = ifelse(knitr::is_latex_output(), "latex", "html"),
+  booktabs = knitr::is_latex_output(),
+  caption  = caption_text,
+  align    = c("l", rep("r", ncol(kable_data) - 1)),
+  escape   = !knitr::is_latex_output()
+) %>%
+  add_header_above(header_labels, escape = !knitr::is_latex_output()) %>%
+  kable_styling(full_width = FALSE, position = "center")
+
+# Apply Grouping Headers
+for(i in 1:nrow(group_indices)) {
+  group_name <- as.character(group_indices$var_group[i])
+  # Skip Intercept header if you want (optional)
+  if(group_name == "Intercept") next 
+  
+  kbl_obj <- kbl_obj %>%
+    pack_rows(group_name, group_indices$start[i], group_indices$end[i])
+}
+
+kbl_obj
+```
+
+```{r coeftableexpendaturetwopart, results='asis', message=FALSE, warning=FALSE}
+# --- Helper Function ---
+format_p_vec <- function(x) {
+  x_num <- as.numeric(x)
+  out <- rep("", length(x_num))
+  non_na <- !is.na(x_num)
+  vals <- x_num[non_na]
+  out[non_na] <- ifelse(vals < 0.001, "<0.001", sprintf("%.3f", vals))
+  out
+}
+
+# --- 1. Tidy & Join ----------------------------------------------------------
+pt1 <- broom::tidy(m_part1) %>%
+  select(term, estimate, std.error, p.value) %>%
+  rename(pt1_est = estimate, pt1_se = std.error, pt1_p = p.value)
+
+pt2 <- broom::tidy(m_part2) %>%
+  select(term, estimate, std.error, p.value) %>%
+  rename(pt2_est = estimate, pt2_se = std.error, pt2_p = p.value)
+
+raw_data <- full_join(pt1, pt2, by = "term")
+
+# --- 2. Create Groups and Clean Labels ---------------------------------------
+
+clean_data <- raw_data %>%
+  mutate(
+    # A. Define the Group Names
+    var_group = case_when(
+      term == "(Intercept)" ~ "Intercept",
+      
+      # --- Continuous / Non-Categorical Variables ---
+      # Grouped together to be sorted, but header will be hidden
+      str_starts(term, "age") ~ "Non_Categorical", 
+      str_starts(term, "bmi") ~ "Non_Categorical",
+      str_starts(term, "income")  ~ "Non_Categorical",
+      str_starts(term, "ndvisit") ~ "Non_Categorical",
+      
+      # --- Categorical Variables (With explicit reference headers) ---
+      str_starts(term, "education") ~ "Education (ref: Less than High School)",
+      str_starts(term, "ethnicity") ~ "Ethnicity (ref: White)",
+      str_starts(term, "gender")    ~ "Gender (ref: Female)",
+      str_starts(term, "general")   ~ "General Health (ref: Excellent)", 
+      str_starts(term, "hyperlipidemia") ~ "Hyperlipidemia", 
+      str_starts(term, "hypertension")   ~ "Hypertension",
+      str_starts(term, "mental")    ~ "Mental Health (ref: Excellent)",
+      str_starts(term, "region")    ~ "Region (ref: Northeast)",
+      TRUE ~ "Other"
+    ),
+    
+    # B. Define the Row Labels 
+    label = case_when(
+      term == "(Intercept)" ~ "(Intercept)",
+      
+      # Continuous Labels 
+      str_starts(term, "age") ~ "age",
+      str_starts(term, "bmi") ~ "bmi",
+      str_starts(term, "income")  ~ "income",
+      str_starts(term, "ndvisit") ~ "ndvisit", 
+      
+      # Categorical Labels (strip variable name prefix)
+      str_starts(term, "education_cat_detailed") ~ str_remove(term, "education_cat_detailed"),
+      str_starts(term, "ethnicity") ~ str_remove(term, "ethnicity"),
+      str_starts(term, "gender")    ~ str_remove(term, "gender"),
+      str_starts(term, "general")   ~ str_remove(term, "general"),
+      str_starts(term, "hyperlipidemia") ~ str_remove(term, "hyperlipidemia"),
+      str_starts(term, "hypertension")   ~ str_remove(term, "hypertension"),
+      str_starts(term, "mental")    ~ str_remove(term, "mental"),
+      str_starts(term, "region")    ~ str_remove(term, "region"),
+      TRUE ~ term
+    ),
+    
+    # C. CUSTOM ORDERING LOGIC for Rows
+    label_rank = case_when(
+      # Education Order
+      label == "High School Graduate" ~ 1,
+      label == "Some College"         ~ 2,
+      label == "College Graduate"     ~ 3,
+      label == "Post-Graduate"        ~ 4,
+      
+      # Health Order
+      label == "Poor"  ~ 1,
+      label == "Fair"  ~ 2,
+      label == "Good"  ~ 3,
+      label == "VGood" ~ 4,
+      
+      TRUE ~ 10 
+    )
+  ) 
+
+# --- 3. Enforce the Group Order ----------------------------------------------
+
+all_groups <- unique(clean_data$var_group)
+
+# UPDATED: Must match the new text strings exactly for sorting to work
+top_groups <- c(
+  "Intercept", 
+  "Non_Categorical", 
+  "General Health (ref: Excellent)", 
+  "Mental Health (ref: Excellent)"
+)
+
+# Combine: Top groups + the rest (sorted alphabetically)
+final_group_order <- c(
+  top_groups, 
+  sort(setdiff(all_groups, top_groups))
+)
+
+sorted_data <- clean_data %>%
+  # 1. Turn var_group into a factor with our custom order
+  mutate(var_group = factor(var_group, levels = final_group_order)) %>%
+  # 2. Arrange by Group, then by our Custom Rank, then Alphabetically
+  arrange(var_group, label_rank, label) %>%
+  # 3. Format numbers
+  mutate(
+    pt1_est = ifelse(is.na(pt1_est), "", sprintf("%.3f", pt1_est)),
+    pt1_se  = ifelse(is.na(pt1_se),  "", sprintf("%.3f", pt1_se)),
+    pt2_est = ifelse(is.na(pt2_est), "", sprintf("%.3f", pt2_est)),
+    pt2_se  = ifelse(is.na(pt2_se),  "", sprintf("%.3f", pt2_se)),
+    pt1_p   = format_p_vec(pt1_p),
+    pt2_p   = format_p_vec(pt2_p)
+  )
+
+# --- 4. Prepare for Kable ----------------------------------------------------
+
+group_indices <- sorted_data %>%
+  mutate(row = row_number()) %>%
+  group_by(var_group) %>%
+  summarise(start = min(row), end = max(row)) %>%
+  arrange(start) 
+
+kable_data <- sorted_data %>% 
+  select(label, pt1_est, pt1_se, pt1_p, pt2_est, pt2_se, pt2_p)
+
+colnames(kable_data) <- c(
+  "Term",
+  "Estimate", "Std. Error", "p-value",
+  "Estimate ", "Std. Error ", "p-value "
+)
+
+# --- 5. Render ---------------------------------------------------------------
+
+header_labels <- c(
+  " " = 1, 
+  "Pt 1: Prob. of any expense" = 3, 
+  "Pt 2: Expenditure amount"   = 3
+)
+
+beta_symbol <- ifelse(knitr::is_latex_output(), "$\\hat{\\beta}$", "&beta;")
+
+caption_text <- paste0(
+  "Estimated coefficients (", beta_symbol, "), standard errors, and p-values. ",
+  "A Probit and Gamma GLM (log link) were used in combination to model the probability of incurring any expense (Pt 1) and the expenditure among health care users (Pt 2). ",
+  "Variable selection was performed independently for Pt 1 and Pt 2."
+)
+
+if (knitr::is_latex_output()) {
+  cat("\\clearpage\n")
+  cat("\\begingroup\n")
+  cat("\\renewcommand{\\arraystretch}{1.2}\n")
+}
+
+kbl_obj <- knitr::kable(
+  kable_data,
+  format   = ifelse(knitr::is_latex_output(), "latex", "html"),
+  booktabs = knitr::is_latex_output(),
+  caption  = caption_text,
+  align    = c("l", rep("r", ncol(kable_data) - 1)),
+  linesep  = "", 
+  escape   = !knitr::is_latex_output(),
+  table.placement = "H"
+) %>%
+  add_header_above(header_labels, escape = !knitr::is_latex_output()) %>%
+  kable_styling(full_width = FALSE, position = "center")
+
+# Apply Grouping Headers
+for(i in 1:nrow(group_indices)) {
+  group_name <- as.character(group_indices$var_group[i])
+  
+  # Skip headers for Intercept and the Non_Categorical group
+  if(group_name %in% c("Intercept", "Non_Categorical")) next 
+  
+  kbl_obj <- kbl_obj %>%
+    pack_rows(group_name, group_indices$start[i], group_indices$end[i])
+}
+
+kbl_obj
+
+if (knitr::is_latex_output()) {
+  cat("\\endgroup\n")
+  cat("\\clearpage\n")
+}
+```
+
+A two-part model was used
+
+\begin{align}
+% Part 1: Probit
+\text{Part 1: } \Pr(\text{expend}_i > 0) &= \Phi(\eta_{1i}) \nonumber \\
+\eta_{1i} &= \gamma_0 + \gamma_1 \text{Age}_i + \gamma_2 \text{Gender}_i + \gamma_3 \text{BMI}_i \nonumber \\
+&\quad + \gamma_4 \text{Ethnicity}_i + \gamma_5 \text{Region}_i + \gamma_6 \text{Education}_i \nonumber \\
+&\quad + \gamma_7 \text{GeneralHealth}_i + \gamma_8 \text{MentalHealth}_i \nonumber \\
+&\quad + \gamma_9 \text{Hypertension}_i + \gamma_{10} \text{Hyperlipidemia}_i \nonumber \\
+&\quad + \gamma_{11} \text{Income}_i + \gamma_{12} \text{NdVisit}_i \\[10pt]
+% Part 2: Gamma
+\text{Part 2: } \ln(\mu_i) &= \beta_0 + \beta_1 \text{Age}_i + \beta_2 \text{Gender}_i \nonumber \\
+&\quad + \beta_3 \text{Region}_i + \beta_4 \text{Education}_i \nonumber \\
+&\quad + \beta_5 \text{GeneralHealth}_i + \beta_6 \text{MentalHealth}_i \nonumber \\
+&\quad + \beta_7 \text{Hypertension}_i + \beta_8 \text{Hyperlipidemia}_i \nonumber \\
+&\quad + \beta_9 \text{Income}_i + \beta_{10} \text{NdVisit}_i
+\end{align}
+
+
+<!-- Φ(⋅): The Cumulative Distribution Function (CDF) of the standard normal distribution (standard notation for Probit models). -->
+
+<!-- η1i​: The linear predictor for the probability stage. -->
+
+<!-- μi​: The expected expenditure conditional on it being positive (E[Yi​∣Yi​>0]). -->
+
+<!-- γ vs β: It is important to use different Greek letters to emphasize that the effect of a variable (e.g., Age) on the probability of spending (γ1​) is different from its effect on the amount of spending (β1​). -->
+
+<!-- Note that $\text{BMI}_{i}$ and $\text{Ethnicity}_{i}$ appear in the first  -->
+<!-- equation but are absent in the second, based on the Lasso variable selection. -->
+
+Insert table of coefficients for both here
+
+"As seen in Table \@ref(tab:coeftableexpendaturetwopart), the results indicate..."
 
 ## Health-care utilisation
 
-# Results
+```{r tmp-utilisation, echo = FALSE}
+mean_visits <- mean(meps_clean$dvisit)
+var_visits <- var(meps_clean$dvisit)
+```
+
+To analyse the frequency of physician encounters (`r
+format_var_name("dvisit")`), a Negative Binomial regression model was employed.
+An initial inspection of the data revealed significant overdispersion, with the
+variance of visits (`r round(var_visits, 1)`) far exceeding the mean 
+(`r round(mean_visits, 1)`), violating the equidispersion assumption of the standard
+Poisson model. The Negative Binomial distribution accounts for this unobserved
+heterogeneity by including an additional dispersion parameter (θ)."
+
+# Model results
+
+- Summarise the results obtained from both models. 
+- Provide a concise interpretation of the empirical findings, 
+- focusing on substantive implications
+
+## Expenditure
+
+## Utilisation
 
 ## Summary 
 
@@ -749,6 +1324,39 @@ Limitations, analysis and evaluations
 Mention connections between the two here - it's heavily embedded
 
 ## Expansion 
+
+# Drafting
+
+The probit models the probability of having any expense, 
+
+\begin{equation}
+  (\#eq:probit)
+  \mathbb{P}[Y>0]
+\end{equation}
+
+
+The Gamma GLM (with a log-link) models the conditional mean of the expense, 
+given that it is positive, 
+\begin{equation}
+  \mathbb{E}[Y \mid Y>0]
+\end{equation}
+
+The 
+
+Therefore expected cost for a given individual is, under this model, given by
+\begin{equation}
+  \mathbb{E}(Y_i \mid \mathbf{x}_i)
+  = \mathbb{P}(Y_i > 0 \mid \mathbf{x}_i)\,
+    \mathbb{E}(Y_i \mid Y_i > 0, \mathbf{x}_i).
+\end{equation}
+
+@ref(eq:probit)
+
+```{=latex}
+\newpage
+\section*{Appendices}
+\addcontentsline{toc}{section}{Appendices}
+```
 
 # (APPENDIX) Appendices {-} 
 
@@ -836,8 +1444,8 @@ The source code for this dashboard is available via the project repository:
 ```{=latex}
 \small
 ```
-```{r r-code-appendix, ref.label = grep("^setup-", knitr::all_labels(), value = TRUE, invert = TRUE), echo = TRUE, eval = FALSE}
-```
+<!-- # ```{r r-code-appendix, ref.label = grep("^setup-", knitr::all_labels(), value = TRUE, invert = TRUE), echo = TRUE, eval = FALSE} -->
+<!-- # ``` -->
 ```{=latex}
 \normalsize
 ```
