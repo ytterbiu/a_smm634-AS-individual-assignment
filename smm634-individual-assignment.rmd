@@ -228,7 +228,7 @@ format_var_name <- function(x) {
 #####################################
 # function: quick format (~legacy qol function)
 #####################################
-fmt <- function(n) {
+fmt <- function(n, digits=0, big_mark = ",") {
   formatC(n, format = "f", digits = digits, big.mark = big_mark)
 }
 ```
@@ -563,15 +563,17 @@ get_num_compare <- function(
       n_obs <- sum(!is.na(x))
       se <- s / sqrt(n_obs)
       
-      return(paste0(fmt(m), " (", fmt(s), ")"))
+      return(paste0(fmt(m, digits=digits), " (", fmt(s, digits=digits), ")"))
       
     } else {
       # calculate median & [IQR]
       med <- median(x, na.rm = TRUE)
       q1 <- quantile(x, 0.25, na.rm = TRUE)
       q3 <- quantile(x, 0.75, na.rm = TRUE)
+      iqr <- 
+        paste0(" [", fmt(q1, digits=digits), " – ", fmt(q3, digits=digits), "]")
       
-      return(paste0(fmt(med), " [", fmt(q1), " – ", fmt(q3), "]"))
+      return(paste0(fmt(med, digits=digits), iqr))
     }
   }
   
