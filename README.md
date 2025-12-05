@@ -1,4 +1,4 @@
-# MSc AS - Term 1: SMM047 Probability and Mathematical Statistics — Group Project
+# MSc AS - Term 1: SMM634 Business Analytics — Individual Project
 
 Term 1 individual project for Business Analytics (50% of coursework grade).
 
