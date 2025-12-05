@@ -469,9 +469,9 @@ identify factors associated with higher or lower spending, which is valuable for
 targeting interventions and evaluating potential policy reforms.
 
 From a modelling perspective, healthcare expenditure data pose several
-distributional challenges: they are non-negative, highly right-skewed (a few
-patients incur massive costs), and contain a large proportion of individuals
-with no recorded healthcare useage. Understanding both whether individuals access
+distributional challenges - they are non-negative, highly right-skewed (a few
+patients incur massive costs), and a large proportion of patients have no 
+recorded healthcare usage. Understanding both whether individuals access
 healthcare and, conditional on doing so, how much is spent is crucial for
 characterising demand and the resulting financial burden.  This report uses 2012
 MEPS data to investigate two primary outcomes related to physician services: the
@@ -482,7 +482,7 @@ healthcare utilisation, and the annual expenditures on doctor visits
 # Methods 
 
 The 2012 MEPS dataset contains `r format(n_total_raw, big.mark=",")`
-observations on US adults aged 18–65. Tables \@ref(tab:initialOverviewCat) &
+observations on US adults aged 18–65 years. Tables \@ref(tab:initialOverviewCat) &
 \@ref(tab:initialOverviewNum) show the categorical and quantitative variables
 for both the full sample and a subsample of individuals with
 positive expenditure.
@@ -490,10 +490,10 @@ positive expenditure.
 The covariates include demographic characteristics 
 (`r format_var_name("age")`, `r format_var_name("gender")`,
 `r format_var_name("ethnicity")`, `r format_var_name("region")`, 
-and `r format_var_name("education")`), socioeconomic status 
+and `r format_var_name("education")`), socio-economic status 
 (`r format_var_name("income")`),
 health indicators (`r format_var_name("BMI")`, self-reported 
-health `r format_var_name("general")` and `r format_var_name("mental")` health, 
+`r format_var_name("general")` and `r format_var_name("mental")` health, 
 `r format_var_name("hypertension")`, and `r format_var_name("hyperlipidemia")`).
 The number of non-physician visits (`r format_var_name("ndvisit")`) was 
 retained as a proxy for the latent propensity to seek care.
@@ -599,8 +599,8 @@ tab_num_comp <- bind_rows(
   get_num_compare(meps_clean, meps_pos, "ndvisit", "Non-doctor visits", digits=2, show_mean_se = TRUE),
   
   # expenditure
-  get_num_compare(meps_clean, meps_pos, "dvexpend", "Doctor expenditure", digits=2, big_mark=",", show_mean_se = TRUE),
-  get_num_compare(meps_clean, meps_pos, "ndvexpend", "Non-doctor expenditure", digits=2, big_mark=",", show_mean_se = TRUE)
+  get_num_compare(meps_clean, meps_pos, "dvexpend", "Doctor expenditure (USD)", digits=2, big_mark=",", show_mean_se = TRUE),
+  get_num_compare(meps_clean, meps_pos, "ndvexpend", "Non-doctor expenditure (USD)", digits=2, big_mark=",", show_mean_se = TRUE)
 )
 
 tab_num_comp %>%
@@ -737,7 +737,7 @@ model was used:
 expenditure
 2. Intensive margin: A Generalised Linear Model (GLM) with a Gamma distribution
 and log link models the magnitude of costs, conditional on them being positive.
-This approach avoids the retransformation bias observed in log-normal models
+This approach avoids the retransformation bias present in log-normal models
 when dealing with heteroscedastic residuals [@blough1999modeling; @deb2018modeling]
 
 For both parts, the choice of covariates was informed by a preliminary Lasso
@@ -746,26 +746,34 @@ domain knowledge. `r format_var_name("ndvisit")` was retained *a priori* in both
 parts as a proxy for latent propensity to use healthcare services. The final
 two-part model is shown in Equations \@ref(eq:expenProbit) & \@ref(eq:expenGamma).
 \begin{align}
-% Part 1: Probit 
+% Part 1: Probit
 \text{Part 1: }& \nonumber\\
-\mathbb{P}\big[\text{dvexpend}_i > 0\big] &= \Phi(\eta_{1i}) \nonumber \\
-\eta_{1i} &= \gamma_0 + \gamma_1 \text{Age}_i + \gamma_2 \text{Gender}_i + \gamma_3 \text{BMI}_i \nonumber \\
-&\quad + \gamma_4 \text{Ethnicity}_i + \gamma_5 \text{Region}_i + \gamma_6 \text{Education}_i \nonumber \\
-&\quad + \gamma_7 \text{General}_i + \gamma_8 \text{Mental}_i \nonumber \\
-&\quad + \gamma_9 \text{Hypertension}_i + \gamma_{10} \text{Hyperlipidemia}_i \nonumber \\
-&\quad + \gamma_{11} \text{Income}_i + \gamma_{12} \text{ndvisit}_i (\#eq:expenProbit) \\[10pt]
+\mathbb{P}[\text{dvexpend}_i > 0] &= \Phi(\eta_{1i}) \nonumber \\
+\eta_{1i} &= \gamma_0 + \gamma_1 \text{age}_i + \gamma_2 \mathrm{I}(\text{gender}_i) + \gamma_3 \text{bmi}_i \nonumber \\
+&\quad + \sum_{k=2}^{4} \gamma_{4k} \mathrm{I}(\text{ethnicity}_i = k) + \sum_{k=2}^{4} \gamma_{5k} \mathrm{I}(\text{region}_i = k) \nonumber \\
+&\quad + \sum_{k=2}^{5} \gamma_{6k} \mathrm{I}(\text{education\_cat\_detailed}_i = k) \nonumber \\
+&\quad + \sum_{k=2}^{5} \gamma_{7k} \mathrm{I}(\text{general}_i = k) + \sum_{k=2}^{5} \gamma_{8k} \mathrm{I}(\text{mental}_i = k) \nonumber \\
+&\quad + \gamma_9 \mathrm{I}(\text{hypertension}_i) + \gamma_{10} \mathrm{I}(\text{hyperlipidemia}_i) \nonumber \\
+&\quad + \gamma_{11} \text{income}_i + \gamma_{12} \text{ndvisit}_i (\#eq:expenProbit) \\[10pt]
 % Part 2: Gamma
 \text{Part 2: }& \nonumber\\
-\mathbb{E}\big[\text{dvexpend}_i &\mid \text{dvexpend}_i > 0\big] = \mu_i \nonumber \\
-\ln(\mu_i) &= \beta_0 + \beta_1 \text{Age}_i + \beta_2 \text{Gender}_i \nonumber \\
-&\quad + \beta_3 \text{Region}_i + \beta_4 \text{Education}_i \nonumber \\
-&\quad + \beta_5 \text{General}_i + \beta_6 \text{Mental}_i \nonumber \\
-&\quad + \beta_7 \text{Hypertension}_i + \beta_8 \text{Hyperlipidemia}_i \nonumber \\
-&\quad + \beta_9 \text{Income}_i + \beta_{10} \text{ndvisit}_i (\#eq:expenGamma)
+\mathbb{E}[\text{dvexpend}_i &\mid \text{dvexpend}_i > 0] = \mu_i \nonumber \\
+\ln(\mu_i) &= \beta_0 + \beta_1 \text{age}_i + \beta_2 \mathrm{I}(\text{gender}_i) \nonumber \\
+&\quad + \sum_{k=2}^{4} \beta_{3k} \mathrm{I}(\text{region}_i = k) + \sum_{k=2}^{5} \beta_{4k} \mathrm{I}(\text{education\_cat\_detailed}_i = k) \nonumber \\
+&\quad + \sum_{k=2}^{5} \beta_{5k} \mathrm{I}(\text{general}_i = k) + \sum_{k=2}^{5} \beta_{6k} \mathrm{I}(\text{mental}_i = k) \nonumber \\
+&\quad + \beta_7 \mathrm{I}(\text{hypertension}_i) + \beta_8 \mathrm{I}(\text{hyperlipidemia}_i) \nonumber \\
+&\quad + \beta_9 \text{income}_i + \beta_{10} \text{ndvisit}_i (\#eq:expenGamma)
 \end{align}
 Where $\eta_{1i}$ is the linear predictor for the Probit model,
-$\gamma_j$ are the coefficients for the Probit, and $\beta_j$ are the
-coefficients for the Gamma GLM with a log link. 
+$\gamma_j$ are the coefficients for the Probit, $\beta_j$ are the
+coefficients for the Gamma GLM with a log link, and $\mathrm{I}(\cdot)$ is the 
+indicator function, equal to 1 if the condition is met and 0 otherwise. 
+For categorical variables 
+(`r format_var_name("ethnicity")`, `r format_var_name("region")`, 
+`r format_var_name("education_cat_detailed")`
+`r format_var_name("general")` and `r format_var_name("mental")` 
+health), the summation $\sum$ indicates that separate coefficients are estimated 
+for each level $k$ relative to the reference category ($k=1$). 
 
 ```{r model-utilisation, echo = FALSE, include=FALSE}
 #----------------------------- Utilisation model ------------------------------#
@@ -870,21 +878,13 @@ the justification for a Negative Binomial model.
 
 \begin{align}
 % Count model: Negative Binomial
-\text{Count model: } \text{dvisit}_i &\sim \text{NegBin}(\mu_i, \kappa) 
-  \nonumber \\[4pt]
-\log(\mu_i) &= \beta_0 
-  + \beta_1 \text{Age}_i 
-  + \beta_2 \text{Gender}_i 
-  + \beta_3 \text{BMI}_i \nonumber \\
-&\quad + \beta_4 \text{General}_i 
-  + \beta_5 \text{Mental}_i \nonumber \\
-&\quad + \beta_6 \text{Ethnicity}_i 
-  + \beta_7 \text{Region}_i \nonumber \\
-&\quad + \beta_8 \text{Hypertension}_i 
-  + \beta_9 \text{Hyperlipidemia}_i \nonumber \\
-&\quad + \beta_{10} \text{Income}_i 
-  + \beta_{11} \text{Ndvisit}_i \nonumber \\
-&\quad + \beta_{12} \text{Education}_i (\#eq:utiliNegBin)
+\text{Count model: } \text{dvisit}_i &\sim \text{NegBin}(\mu_i, \kappa)   \nonumber \\[4pt]
+\log(\mu_i) &= \beta_0   + \beta_1 \text{age}_i   + \beta_2 \mathrm{I}(\text{gender}_i)   + \beta_3 \text{bmi}_i \nonumber \\
+&\quad + \sum_{k=2}^{5} \beta_{4k} \mathrm{I}(\text{general}_i = k)   + \sum_{k=2}^{5} \beta_{5k} \mathrm{I}(\text{mental}_i = k) \nonumber \\
+&\quad + \sum_{k=2}^{4} \beta_{6k} \mathrm{I}(\text{ethnicity}_i = k)   + \sum_{k=2}^{4} \beta_{7k} \mathrm{I}(\text{region}_i = k) \nonumber \\
+&\quad + \beta_8 \mathrm{I}(\text{hypertension}_i)   + \beta_9 \mathrm{I}(\text{hyperlipidemia}_i) \nonumber \\
+&\quad + \beta_{10} \text{income}_i   + \beta_{11} \text{ndvisit}_i \nonumber \\
+&\quad + \sum_{k=2}^{5} \beta_{12k} \mathrm{I}(\text{education\_cat\_detailed}_i = k) (\#eq:utiliNegBin)
 \end{align}
 
 To investigate the dependence structure between the frequency of visits and the
@@ -894,13 +894,13 @@ the joint cumulative distribution function, $H(y_1,y_2)$, of utilisation
 ($Y_1$) and expenditure ($Y_2$) can be modelled by coupling their marginal 
 distributions ($F_1$ and $F_2$) via a copula function $C$:
 $$
-H(y_1,y_2) = C(F_1(y_1), F_2(y_2); \theta)
+H(y_1,y_2) = C\big(F_1(y_1), F_2(y_2); \theta\big)
 $$
 where $\theta$ is the association parameter. A Gaussian copula was fitted to 
-the residuals of the marginal models for individuals with positive expendature 
-using the `GJRM` package in R and Kendall's $\tau$, a measure of 
-rank correlation, was estimated [@MarraRadice2025CopulaADDR]. For a Gaussian 
-copula Kendall's $\tau$ is related to the latent correlation, $\theta$, by
+the residuals of the marginal models for individuals with positive expenditure 
+using the `GJRM` package in R [@MarraRadice2025CopulaADDR]. 
+Kendall's $\tau$, a measure of rank correlation, was estimated. For a Gaussian 
+copula $\tau$ is related to the latent correlation, $\theta$, by
 $$
 \tau = \frac{2}{\pi}\arcsin{(\theta)} 
 \quad \rightarrow 
@@ -1103,6 +1103,85 @@ and the percent change is given by
 $$
 100\left(\exp(\Delta \beta_k)-1\right)\%.
 $$
+
+## Model 1: Health care expenditure
+
+The two-part model effectively captures the dual processes of access and cost. 
+In the first stage (Probit), females, older adults, and those with
+chronic conditions (hypertension, hyperlipidemia) were significantly more likely
+to incur expenditure (Table \@ref(tab:coeftableexpen)). 
+In the second stage (Gamma GLM), conditional on seeking care, significant
+disparities in expenditure emerged. A 10-year increase in age is
+associated with a `r round(100*(exp(10*coef(m_part2)["age"])-1))`%
+increase in conditional costs. Interestingly, males incur 
+`r round(100*(1- exp(coef(m_part2)["genderMale"])), 1)`% lower costs than 
+females (p
+`r format_p_vals(summary(m_part2)$coefficients["genderMale", "Pr(>|t|)"])`). 
+This finding aligns with work by @bertakisgender2000 who suggests women have 
+higher healthcare engagement and diagnostic usage during reproductive years and 
+for preventive screenings.
+
+Self-reported general and mental health showed a strong effect with individuals 
+who report "Poor" health incurring 
+`r round(100*(exp(coef(m_part2)["generalPoor"])-1))`% 
+higher costs than those in "Excellent" health. These patterns are consistent
+with clinical expectations - individuals who are sicker and/or more 
+health-engaged both enter the system more often and incur higher costs once they do so.
+
+The two-part model achieves an Root Mean Square Error of $`r round(rmse, 0)` and
+a Mean Absolute Error of $`r round(mae, 0)`. The predictive performance was
+robust at the aggregate level, with the total predicted cost within 
+`r round(bias_percent, 1)`% of the actual total, although the model 
+underestimates extreme outliers (Figure \@ref(fig:expenboxplot)).
+
+
+```{r expenboxplot, echo=FALSE, fig.cap="Distribution of prediction errors (actual cost − predicted cost) by expenditure category. The boxplots display the median and interquartile range of errors for patients grouped by their actual healthcare expenditure and the red dashed line represents a perfect prediction. The large positive errors for the highest cost categories show that the model fails to account for the full magnitude of catastrophic health expenditures."}
+# boxplot
+meps_results <- meps_results %>%
+  mutate(
+    cost_group = cut(
+      actual_cost,
+      breaks = c(-Inf, 0, 100, 1000, 5000, 10000, 20000, 40000, Inf),
+      labels = c(
+        "Zero",
+        "$1–100",
+        "$100–1k",
+        "$1k–5k",
+        "$5k–10k",   
+        "$10k–20k",  
+        "$20k–40k",  
+        ">$40k"      
+      )
+    )
+  )
+
+# Plot the errors for each group
+ggplot(meps_results, aes(x = cost_group, y = error)) +
+  geom_boxplot(fill = "lightblue", alpha = 0.7) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    # title = "Distribution of health care expendature prediction errors",
+    # subtitle = "Box shows the IQR (Middle 50% of errors)",
+    x = "Expenditure Category",
+    y = "Prediction Error ($)"
+  ) +
+  theme_minimal()
+# +
+# coord_cartesian(ylim = c(-2000, 2000)) # Zoom in to ignore extreme outliers
+```
+
+## Model 2: Health care utilisation
+
+As shown in Table \@ref(tab:coeftablecount), utilisation patterns mirrored
+expenditure. Black and "Other" ethnic groups showed significantly lower visit
+counts compared to White patients (Incident Rate Ratios < 1), consistent with
+structural barriers to access and utilisation documented in the US healthcare
+system [@Waidmann2000; @maciaskonstantopoulosrace2023]. Non-physician visits
+(`r format_var_name("ndvisit")`) were positively associated with doctor visits
+(`r round(100*(exp(coef(m_count)["ndvisit"])-1))`% increase per
+visit), perhaps suggesting complementarity rather than substitution between provider
+types.
+
 
 ```{r coeftableexpen, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
 #---------------- Expendature two part table (semi-automated) -----------------#
@@ -1474,83 +1553,6 @@ if (knitr::is_latex_output()) {
 ```
 
 
-## Model 1: Health care expenditure
-
-The two-part model effectively captures the dual processes of access and cost. 
-In the first stage (Probit), females, older adults, and those with
-chronic conditions (hypertension, hyperlipidemia) were significantly more likely
-to incur expenditure (Table \@ref(tab:coeftableexpen)). 
-In the second stage (Gamma GLM), conditional on seeking care, significant
-disparities in expenditure emerged. A 10-year increase in age is
-associated with approximately a `r round(100*(exp(10*coef(m_part2)["age"])-1))`%
-increase in conditional costs. Interestingly, males incur approximately 
-`r round(100*(1- exp(coef(m_part2)["genderMale"])), 1)`% lower costs than 
-females (p
-`r format_p_vals(summary(m_part2)$coefficients["genderMale", "Pr(>|t|)"])`). 
-This finding aligns with work by @bertakisgender2000 who suggests women have 
-higher healthcare engagement and diagnostic usage during reproductive years and 
-for preventive screenings.
-
-Self-reported general and mental health showed a strong effect with individuals 
-who report "Poor" health incurring 
-`r round(100*(exp(coef(m_part2)["generalPoor"])-1))`% 
-higher costs than those in "Excellent" health. These patterns are consistent
-with clinical expectations - individuals who are sicker and/or more 
-health-engagedboth enter the system more often and incur higher costs once they do so.
-
-The two-part model achieves an Root Mean Square Error of $`r round(rmse, 0)` and
-a Mean Absolute Error of $`r round(mae, 0)`. The predictive performance was
-robust at the aggregate level, with the total predicted cost within 
-`r round(bias_percent, 1)`% of the actual total, although the model 
-underestimates extreme outliers (Figure \@ref(fig:expenboxplot)).
-
-
-```{r expenboxplot, echo=FALSE, fig.cap="Distribution of prediction errors (Actual Cost − Predicted Cost) by expenditure category. The boxplots display the median and interquartile range of errors for patients grouped by their actual healthcare expenditure and the red dashed line represents a perfect prediction. The large positive errors for the highest cost categories show that the model fails to account for the full magnitude of catastrophic health expenditures."}
-# boxplot
-meps_results <- meps_results %>%
-  mutate(
-    cost_group = cut(
-      actual_cost,
-      breaks = c(-Inf, 0, 100, 1000, 5000, 10000, 20000, 40000, Inf),
-      labels = c(
-        "Zero",
-        "$1–100",
-        "$100–1k",
-        "$1k–5k",
-        "$5k–10k",   
-        "$10k–20k",  
-        "$20k–40k",  
-        ">$40k"      
-      )
-    )
-  )
-
-# Plot the errors for each group
-ggplot(meps_results, aes(x = cost_group, y = error)) +
-  geom_boxplot(fill = "lightblue", alpha = 0.7) +
-  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
-  labs(
-    # title = "Distribution of health care expendature prediction errors",
-    # subtitle = "Box shows the IQR (Middle 50% of errors)",
-    x = "Expenditure Category",
-    y = "Prediction Error ($)"
-  ) +
-  theme_minimal()
-# +
-# coord_cartesian(ylim = c(-2000, 2000)) # Zoom in to ignore extreme outliers
-```
-
-## Model 2: Health care utilisation
-
-As shown in Table \@ref(tab:coeftablecount), utilisation patterns mirrored
-expenditure. Black and "Other" ethnic groups showed significantly lower visit
-counts compared to White patients (Incident Rate Ratios < 1), consistent with
-structural barriers to access and utilisation documented in the US healthcare
-system [@Waidmann2000; @maciaskonstantopoulosrace2023]. Non-physician visits
-(`r format_var_name("ndvisit")`) were positively associated with doctor visits
-(approximately `r round(100*(exp(coef(m_count)["ndvisit"])-1))`% increase per
-visit), suggesting complementarity rather than substitution between provider
-types.
 
 ## Dependence structure
 
@@ -1563,11 +1565,11 @@ health care demands.
 As shown in Figure \@ref(fig:plots-copula), there is a clear positive
 association between the number of visits and total expenditure. While some
 mechanical correlation is expected (more visits naturally equal more cost), the
-estimated Gaussian copula parameter (Kendall’s $\tau =$ `r round(tau_hat,3)`, 
-$\theta =$ `r round(theta_hat,3)`)
+estimated Gaussian copula parameter (Kendall’s $\hat{\tau} =$ `r round(tau_hat,3)`, 
+$\hat{\theta} =$ `r round(theta_hat,3)`)
 indicates a dependence that extends beyond simple accumulation. This finding is
 in agreement with recent work by @marramodelling2025 who used the same MEPS 
-data, and also found that 'heavy' users are distinct not only in their visit
+data, and also found that 'heavy' patient's are distinct, not only in their visit
 frequency but also in their resource consumption intensity. This supports the
 use of a joint frequency-severity modelling framework over independent models.
 
@@ -1593,6 +1595,10 @@ ggplot(meps_pos, aes(x = dvisit, y = dvexpend)) +
 ```
 
 
+```{=latex}
+\newpage
+```
+
 # Discussion and conclusion
 
 This analysis highlights the multifaceted drivers of healthcare demand and
@@ -1602,25 +1608,23 @@ gaps reinforce the need for risk-adjustment models that explicitly account for
 biological and systemic usage differences [@bertakisgender2000].
 
 A key strength of this study is the application of a joint frequency-severity
-framework. The estimated Gaussian copula parameter ($\tau$ = 
-`r round(tau_hat,3)`) reveals that high-frequency patients are distinct not 
-only in volume but also in resource intensity per visit. This aligns with recent
-work by
-@marramodelling2025 on the same MEPS dataset. Reassuringly, despite their use of
-a complex Rotated Gumbel-Dagum specification, @marramodelling2025 reported a
-similar dependence ($\hat{\theta}$ = 2.67 corresponding to $\tau$ =
+framework. The estimated Gaussian copula parameter ($\hat{\tau}$ = 
+`r round(tau_hat,3)`) aligns with recent work by
+@marramodelling2025 on the same MEPS dataset. @marramodelling2025, despite 
+using a more advanced Rotated Copula with Gumbel and Dagum models, 
+reported a similar dependence ($\hat{\theta}$ = 2.67 corresponding to $\hat{\tau}$ =
 0.625^[Calculated using $\tau = 1 - \frac{1}{\theta}$ for the Gumbel
-Kendall’s tau relationship.]). Replicating this association using a
-parsimonious Gamma-Gaussian framework validates the link between visit
+Kendall’s tau relationship.]). This report's replication of this finding using a
+parsimonious Gamma-Gaussian framework further validates the link between visit
 frequency and cost intensity as a fundamental structural feature of healthcare
 demand, rather than a model artefact.
 
-Interpreting these coefficients as causal effects, however, is constrained by
-observational biases. While the analysis identified ethnic disparities, aligning
+Interpreting these coefficients as causal effects is constrained by
+observational biases. While the analysis identified ethnic disparities, chiming
 with the work of @maciaskonstantopoulosrace2023 on structural limits to
 healthcare access, the omission of insurance data acts as a confounding
 variable. Coefficients for income and ethnicity likely absorb variance related
-to coverage types, potentially biasing socioeconomic conclusions. The positive
+to coverage types, potentially biasing socio-economic conclusions. The positive
 association with non-doctor visits likely reflects simultaneity bias, where
 unobserved health shocks drive demand for both physician and non-physician care,
 rather than a clean substitution effect. In addition, selection bias is
@@ -1631,8 +1635,8 @@ From a statistical standpoint, the GLM framework imposes strict linearity,
 missing non-linear health deterioration thresholds (such as rapid age-BMI
 interactions). Diagnostic plots also reveal that the Gamma distribution and
 Gaussian Copula underestimate the extreme right tail and enforce symmetric
-dependence. Future work should address these catastrophic costs, potentially by
-using tree-based machine learning (e.g., Random Forests) to detect
+dependence. Future work may address these catastrophic costs, potentially by
+using tree-based machine learning to detect
 non-linearities, or by integrating actuarial Extreme Value Theory (EVT).
 
 The transition from univariate averages to multivariate dependence structures is
@@ -1641,6 +1645,7 @@ Accurately modelling the compound risk of the high-cost patients through EVT and
 Copulas will enable health systems to better price the heavy tail of demand,
 ensuring the long-term viability of the health and insurance ecosystems that
 support the health of the many.
+
 
 <!-- This analysis highlights the complex drivers of healthcare demand. The two-part -->
 <!-- expenditure model confirms that the decision to seek care and the resulting cost -->
@@ -1751,8 +1756,8 @@ ggplot(meps_results, aes(x = final_prediction, y = actual_cost)) +
 
 ## Expenditure Model (Gamma GLM)
 The Gamma model with log link handles the skewness of positive expenditures. The
-residual plots below show no severe deviations, though some 'strain' is visible at
-the highest fitted values.
+residual plots in Figure \@ref(fig:diag-gamma) show minor deviations at 
+the largest fitted values.
 
 ```{r diag-gamma, fig.cap="Diagnostic plots for the Gamma GLM (Expenditure).", fig.height=7.5, fig.width=7, out.width="99%", fig.align='center', echo=FALSE}
 # Create a 2x2 plotting area
@@ -1853,7 +1858,40 @@ that the Negative Binomial distribution successfully handles the overdispersion.
 \newpage
 ```
 
-# Reproducibility, accessibility & declarations (Gen-AI & word count)
+# Bonus exploration: R Shiny dashboard {#apd-dashboard}
+
+To complement the regression analysis, address space constraints, and in a 
+optimistic pursuit of potential extra credit, an interactive R Shiny web
+application was developed to allow one to explore the models described in this 
+report further. This dashboard, or web application, allows one to
+dynamically input specific patient characteristics and observe the resulting
+predictions from the fitted models. It is accessible via: 
+
+- https://3enji.shinyapps.io/smm634-meps-dashboard/
+
+```{r appendixdashboard1, echo=FALSE, purl=FALSE, out.width="100%", fig.cap="Annotated interface of the MEPS Healthcare Model Dashboard. The interface highlights (1) a button that runs the model for the selected parameters, (2) patient covariate configuration, (3) results navigation, and (4) the predicted expenditure and utilisation outcomes."}
+knitr::include_graphics("fig/appendix-dashboard-1.pdf")
+```
+
+Figure \@ref(fig:appendixdashboard1) shows an annotated view of the dashboard, 
+including:
+
+1. An Estimate Outcomes button, which runs the prediction logic using the 
+selected inputs against using the Two-Part and Negative Binomial models.
+1. A sidebar containing interactive sliders and input fields for key covariates, 
+including continuous and categorical variables.
+1. Two tabs allowing the user to toggle between the numerical estimates and a 
+visual comparison of the patient against the population distribution.
+1. Key results cards displaying the calculated Expected Annual Expenditure 
+(derived from the combined Probit and Gamma models) and the Expected Doctor 
+Visits (derived from the Negative Binomial model).
+
+<!-- ```{=latex} -->
+<!-- \clearpage -->
+<!-- \newpage -->
+<!-- ``` -->
+
+# Reproducibility, accessibility, & word count
 <!-- BE note: taken out as we are submitting R file separately -->
 <!-- Use: `knitr::purl("smm634-individual-assignment.rmd", documentation = 0)` 
 to generate r file -->
@@ -1867,10 +1905,54 @@ An accessible HTML version of this report is available via a public GitHub page:
 
 - https://ytterbiu.github.io/a_smm634-AS-individual-assignment/
 
-This report was created in R Markdown. The source code is open source and is
+This report was created in R Markdown. The source code is open source and
 available via:
 
 - https://github.com/ytterbiu/a_smm634-AS-individual-assignment
+
+## Word count
+
+`r word_count <- (241+78+204+218+55+195+62+139+362)`
+The report R Markdown file was used to produce a `tex` file and the tool 
+`texcount` was used to count the words within each section. 
+The output of `texcount` is shown below. Excluding the appendix, Figures and 
+Tables the word count is 
+`r word_count` (`r sprintf("%+.1f%%", 100 * (word_count - 1500) / 1500)`).
+
+```bash
+texcount smm634-individual-assignment.tex 
+
+File: smm634-individual-assignment.tex
+Encoding: utf8
+Words in text: 2279
+Words in headers: 59
+Words outside text (captions, etc.): 307
+Number of headers: 18
+Number of floats/tables/figures: 11
+Number of math inlines: 32
+Number of math displayed: 6
+Subcounts:
+  text+headers+captions (#headers/#floats/#inlines/#displayed)
+  4+13+0 (1/0/0/0) _top_
+  241+1+0 (1/0/0/0) Section: Introduction
+  78+1+38 (1/2/0/0) Section: Methods
+  204+2+0 (1/0/7/1) Subsection: Health-care expenditure
+  218+2+0 (1/0/13/3) Subsection: Health-care utilisation
+  55+1+0 (1/0/4/2) Section: Results
+  195+5+62 (1/1/0/0) Subsection: Model 1: Health care expenditure
+  62+5+57 (1/2/2/0) Subsection: Model 2: Health care utilisation
+  139+2+50 (1/1/2/0) Subsection: Dependence structure
+  362+3+8 (1/0/4/0) Section: Discussion and conclusion
+  0+1+0 (1/0/0/0) Section: Appendices
+  0+2+0 (1/0/0/0) Section: Model Diagnostics
+  101+4+35 (1/2/0/0) Subsection: Expenditure Model (Gamma GLM)
+  158+4+20 (1/2/0/0) Subsection: Utiliation model (Negative Binomial)
+  158+5+37 (1/1/0/0) Section: Bonus exploration: R Shiny dashboard
+  0+4+0 (1/0/0/0) Section: Reproducibility, accessibility, \& word count
+  30+2+0 (1/0/0/0) Subsection: Reproducibility \& accessibility
+  268+2+0 (1/0/0/0) Subsection: Word count
+...
+```
 
 ```{=latex}
 \small
