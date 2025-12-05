@@ -492,13 +492,9 @@ and `r format_var_name("education")`), socioeconomic status
 (`r format_var_name("income")`),
 health indicators (`r format_var_name("BMI")`, self-reported 
 health `r format_var_name("general")` and `r format_var_name("mental")` health, 
-`r format_var_name("hypertension")`, and `r format_var_name("hyperlipidemia")`) 
-and healthcare utilisation beyond physician visits (number
-of non-physician visits, `r format_var_name("ndvisit")`). 
-`r format_var_name("ndvisit")` was retained because it
-captures an underlying propensity to use healthcare services, whereas
-non-physician expenditure (`r format_var_name("ndvexpend")`) was excluded to 
-avoid 'leakage' from using one spending outcome to predict another.
+`r format_var_name("hypertension")`, and `r format_var_name("hyperlipidemia")`).
+The number of non-physician visits (`r format_var_name("ndvisit")`) was 
+retained as a proxy for the latent propensity to seek care.
 
 ```{r initialOverviewCat, echo=FALSE}
 tab_cat_comp <- bind_rows(
@@ -731,36 +727,26 @@ summary(m_part2)
 ## Health-care expenditure
 
 Doctor-visit expenditure (`r format_var_name("dvexpend")`) is semi-continuous, 
-with a mass of zero observations 
-(`r format(n_zero_cost, big.mark=",")`, `r round(pct_zero,1)`%, incur zero 
-healthcare costs) and a highly right-skewed distribution among positive values. 
-To accommodate this structure, expenditure was modelled using a two-part 
-framework.
+characterised by a point mass at zero (`r round(pct_zero,1)`% of observations) 
+and a heavy right skew among positive values. To address this, a two-part 
+model was used:
 
-A two-part model was selected (instead of a log-normal model) because it permits
-the  decision to seek any care (extensive margin) and the intensity of
-expenditure conditional on care (intensive margin) to depend on different
-covariates and processes [@deb2018modeling]. The Gamma–log specification for the
-second part is recommended for skewed medical cost data as it avoids the
-retransformation bias associated with log-transformed models
-[@blough1999modeling].
+1. Extensive margin: A Probit model estimates the probability of incurring any 
+expenditure
+2. Intensive margin: A Generalised Linear Model (GLM) with a Gamma distribution
+and log link models the magnitude of costs, conditional on them being positive.
+This approach avoids the retransformation bias observed in log-normal models
+when dealing with heteroscedastic residuals [@blough1999modeling; @deb2018modeling]
 
-A Probit model is used to estimate the probability that an individual incurs any
-doctor-visit expenditure and a Generalised Linear Model (GLM) with Gamma
-distribution and log link models the amount spent, conditional on having
-positive expenditure. The Gamma–log specification is recommended for medical
-cost data because it captures heavy right skew without the retransformation bias
-of log-normal models [@deb2018modeling]. For both parts, the choice of
-covariates was informed by a preliminary Lasso regression using the full set of
-candidate predictors, combined with prior domain knowledge. 
-`r format_var_name("ndvisit")` was retained *a priori* in both parts as a proxy 
-for latent propensity to use healthcare services. The final two-part model is
-shown in Eq. \@ref(eq:expenProbit) & \@ref(eq:expenGamma).
-
+For both parts, the choice of covariates was informed by a preliminary Lasso
+regression using the full set of candidate predictors, combined with prior
+domain knowledge. `r format_var_name("ndvisit")` was retained *a priori* in both
+parts as a proxy for latent propensity to use healthcare services. The final
+two-part model is shown in Equations \@ref(eq:expenProbit) & \@ref(eq:expenGamma).
 \begin{align}
 % Part 1: Probit 
 \text{Part 1: }& \nonumber\\
-\mathbb{P}(\text{dvexpend}_i > 0) &= \Phi(\eta_{1i}) \nonumber \\
+\mathbb{P}\big[\text{dvexpend}_i > 0\big] &= \Phi(\eta_{1i}) \nonumber \\
 \eta_{1i} &= \gamma_0 + \gamma_1 \text{Age}_i + \gamma_2 \text{Gender}_i + \gamma_3 \text{BMI}_i \nonumber \\
 &\quad + \gamma_4 \text{Ethnicity}_i + \gamma_5 \text{Region}_i + \gamma_6 \text{Education}_i \nonumber \\
 &\quad + \gamma_7 \text{General}_i + \gamma_8 \text{Mental}_i \nonumber \\
@@ -768,7 +754,7 @@ shown in Eq. \@ref(eq:expenProbit) & \@ref(eq:expenGamma).
 &\quad + \gamma_{11} \text{Income}_i + \gamma_{12} \text{ndvisit}_i (\#eq:expenProbit) \\[10pt]
 % Part 2: Gamma
 \text{Part 2: }& \nonumber\\
-\mathbb{E}[\text{dvexpend}_i &\mid \text{dvexpend}_i > 0] = \mu_i \nonumber \\
+\mathbb{E}\big[\text{dvexpend}_i &\mid \text{dvexpend}_i > 0\big] = \mu_i \nonumber \\
 \ln(\mu_i) &= \beta_0 + \beta_1 \text{Age}_i + \beta_2 \text{Gender}_i \nonumber \\
 &\quad + \beta_3 \text{Region}_i + \beta_4 \text{Education}_i \nonumber \\
 &\quad + \beta_5 \text{General}_i + \beta_6 \text{Mental}_i \nonumber \\
@@ -861,27 +847,24 @@ p_overdisp <- pchisq(m_pois$deviance, df = m_pois$df.residual, lower.tail = FALS
 
 ## Health-care utilisation
 
-To analyse the frequency of physician encounters 
-(`r format_var_name("dvisit")`), a Negative Binomial regression model was employed.
-An initial inspection of the data revealed significant overdispersion, with the
-variance of visits (`r round(var_visits, 1)`) far exceeding the mean 
-(`r round(mean_visits, 1)`), violating the equidispersion assumption of the standard
-Poisson model. 
+The count of doctor visits (`r format_var_name("dvisit")`) exhibited significant
+overdispersion (Variance: `r round(var_visits, 1)` > Mean: 
+`r round(mean_visits, 1)`), violating the assumptions of a standard
+Poisson model. A Negative Binomial regression was fitted to
+account for the excess variability and lasso screening and prior domain knowledge 
+were used to inform covariate choice (Equation \@ref(eq:utiliNegBin)).
 
-As a formal benchmark, a Poisson regression model with the same covariates as
-the final specification was fitted. A formal overdispersion test, comparing the
-Poisson residual deviance to a $\chi^2$ distribution with the corresponding
-residual degrees of freedom, yielded a Pearson dispersion of
-`r round(dispersion_pois, 2)` and p `r format_p_vals(p_overdisp)`. The Poisson
-model also had a higher AIC than the Negative Binomial model
-(AIC\(_\text{Poisson}\) = `r formatC(aic_pois, format = "f", digits = 0)` 
+A Poisson regression model with the same covariates as
+the final specification was also fitted and a formal overdispersion test, 
+comparing the Poisson residual deviance to a $\chi^2$ distribution with the 
+corresponding residual degrees of freedom, yielded a Pearson dispersion of
+`r round(dispersion_pois, 2)` (p `r format_p_vals(p_overdisp)`). The Poisson
+model had a higher Akaike Information Criterion (AIC) than the Negative 
+Binomial model (AIC\(_\text{Poisson}\) = 
+`r formatC(aic_pois, format = "f", digits = 0)` 
 versus AIC\(_\text{NegBin}\) = 
 `r formatC(aic_negbin, format = "f", digits = 0)`), further supporting 
 the justification for a Negative Binomial model.
-
-Lasso screening and prior domain knowledge were used to inform covariate choice 
-and the final specification for the healthcare utilisation model is given in Eq
-\@ref(eq:utiliNegBin).
 
 \begin{align}
 % Count model: Negative Binomial
@@ -902,41 +885,39 @@ and the final specification for the healthcare utilisation model is given in Eq
 &\quad + \beta_{12} \text{Education}_i (\#eq:utiliNegBin)
 \end{align}
 
-In this report, the two-part expenditure model and the utilisation model for
-doctor visits are estimated separately. Conditional on the observed covariates
-(including `r format_var_name("ndvisit")`), no additional dependence between
-visit counts and expenditure is modelled. This simplifying assumption allows
-the frequency and severity components to be analysed individually, while still
-providing a basis for future work that combines them in a joint
-frequency–severity framework.
-
-# Results and interpretation
-
-<!-- - Summarise the results obtained from both models.  -->
-<!-- - Provide a concise interpretation of the empirical findings,  -->
-<!-- - focusing on substantive implications -->
-
-## Expenditure
+To investigate the dependence structure between the frequency of visits and the
+intensity of expenditure beyond observed covariates, a copula approach was
+employed following the framework of @marramodelling2025. Using Sklar’s Theorem, 
+the joint cumulative distribution function, $H(y_1,y_2)$, of utilisation 
+($Y_1$) and expenditure ($Y_2$) can be modelled by coupling their marginal 
+distributions ($F_1$ and $F_2$) via a copula function $C$:
+$$
+H(y_1,y_2) = C(F_1(y_1), F_2(y_2); \theta)
+$$
+where $\theta$ is the association parameter. A Gaussian copula was fitted to 
+the residuals of the marginal models for individuals with positive expendature 
+using the `GJRM` package in R and Kendall's $\tau$, a measure of 
+rank correlation, was estimated [@MarraRadice2025CopulaADDR].
 
 
-```{r expenditure-predictions, echo=FALSE, include=TRUE}
+```{r expenditure-predictions, echo=FALSE, include=FALSE}
 #### Predictions
 ####
 ####
-# --- Step 1: Predict Probability (Part 1) ---
-# type = "response" gives us a probability between 0 and 1
+# 1. predict probability
+# type = "response" gives probability between 0 and 1
 prob_any_expense <- predict(m_part1, newdata = meps_clean, type = "response")
 
-# --- Step 2: Predict Conditional Cost (Part 2) ---
-# We predict cost for EVERYONE as if they did go to the doctor.
+# 2. conditional cost
+# predict cost for everbody (assuming they do go to the doctor)
 # type = "response" automatically undoes the Log-link (returns dollars, not log-dollars)
 cond_cost <- predict(m_part2, newdata = meps_clean, type = "response")
 
-# --- Step 3: Combine them ---
+# 3. combine
 # Expected Expenditure = Probability * Cost
 expected_expenditure <- prob_any_expense * cond_cost
 
-# --- Step 4: Add to your dataframe to compare ---
+# 4. add df & compare
 meps_results <- meps_clean %>%
   mutate(
     pred_prob = prob_any_expense,
@@ -945,142 +926,106 @@ meps_results <- meps_clean %>%
     actual_cost = dvexpend
   )
 
-# Inspect the first few rows
-head(
-  meps_results %>% dplyr::select(has_expense, actual_cost, pred_prob, final_prediction)
-)
+# head(
+#   meps_results %>% dplyr::select(has_expense, actual_cost, pred_prob, final_prediction)
+# )
 
 # evaluation of predictions
 meps_results$error <- meps_results$actual_cost - meps_results$final_prediction
 
-# 1. RMSE (Root Mean Squared Error)
+# 1. RMSE 
 rmse <- sqrt(mean(meps_results$error^2))
 
-# 2. MAE (Mean Absolute Error)
+# 2. Mean Absolute Error
 mae <- mean(abs(meps_results$error))
 
 # Print results
-paste0("RMSE: $", round(rmse, 2))
-paste0("MAE:  $", round(mae, 2))
-
-ggplot(meps_results, aes(x = final_prediction, y = actual_cost)) +
-  geom_point(alpha = 0.3, color = "blue") + # Semi-transparent dots
-  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") + # Ideally where points should fall
-  labs(
-    title = "Actual vs. Predicted Expenditure",
-    x = "Predicted Cost ($)",
-    y = "Actual Cost ($)"
-  ) +
-  theme_minimal()
-# +
-#   coord_cartesian(xlim = c(0, 10000), ylim = c(0, 10000))
+# paste0("RMSE: $", round(rmse, 2))
+# paste0("MAE:  $", round(mae, 2))
 
 total_actual <- sum(meps_results$actual_cost)
 total_pred <- sum(meps_results$final_prediction)
 bias_percent <- ((total_pred - total_actual) / total_actual) * 100
 
-paste0("Total Actual Cost:    $", format(round(total_actual), big.mark = ","))
-paste0("Total Predicted Cost: $", format(round(total_pred), big.mark = ","))
-paste0("Bias: ", round(bias_percent, 2), "%")
+# paste0("Total Actual Cost:    $", format(round(total_actual), big.mark = ","))
+# paste0("Total Predicted Cost: $", format(round(total_pred), big.mark = ","))
+# paste0("Bias: ", round(bias_percent, 2), "%")
 
-# Calculate the errors (Residuals)
+# Calculate the errors -> residuals
 residuals <- meps_results$actual_cost - meps_results$final_prediction
 
-# 1. The IQR (Range of the middle 50%)
+# IQR
 iqr_metric <- IQR(residuals)
 
-# 2. Specific Percentiles (e.g., The range for 90% of patients)
+# percentiles
 quantiles <- quantile(
   residuals,
   probs = c(0.01, 0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975, 0.99)
 )
 
-print(paste0("IQR of Error: $", round(iqr_metric, 2)))
-print(quantiles)
-
-# boxplot
-meps_results <- meps_results %>%
-  mutate(
-    cost_group = cut(
-      actual_cost,
-      breaks = c(-Inf, 0, 100, 1000, 5000, 10000, 20000, 40000, Inf),
-      labels = c(
-        "Zero",
-        "$1-100",
-        "$100-1k",
-        "$1k-5k",
-        "$5k+",
-        "$10k+",
-        "$20k+",
-        "$40k+"
-      )
-    )
-  )
-
-# Plot the errors for each group
-ggplot(meps_results, aes(x = cost_group, y = error)) +
-  geom_boxplot(fill = "lightblue", alpha = 0.7) +
-  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
-  labs(
-    title = "Distribution of Prediction Errors by Cost Category",
-    subtitle = "Box shows the IQR (Middle 50% of errors)",
-    x = "Actual Expenditure Category",
-    y = "Prediction Error ($)"
-  ) +
-  theme_minimal()
-# +
-# coord_cartesian(ylim = c(-2000, 2000)) # Zoom in to ignore extreme outliers
-
+# print(paste0("IQR of Error: $", round(iqr_metric, 2)))
+# print(quantiles)
 ```
 
+# Results
 
-Tables of coefficients for the expenditure and utilisation models are shown in 
-Table \@ref(tab:coef-table-expen) and \@ref(tab:coef-table-count)
+Both the Gamma and Negative Binomial models were fitted with a log link, so
+their coefficients are interpreted multiplicatively. For a predictor $x_k$ with
+coefficient $\beta_k$, a $\Delta$-unit increase in $x_k$ multiplies the mean
+(conditional mean cost in the Gamma model and expected visit count in the 
+Negative Binomial model) by
+$$
+\exp(\Delta \beta_k).
+$$
+and the percent change is given by
+$$
+100\left(\exp(\Delta \beta_k)-1\right)\%.
+$$
 
-For the extensive margin (any expenditure), the Probit model substantially
-reduces deviance relative to the intercept-only model (from 14,677 to 12,283),
-corresponding to a likelihood-ratio χ²(25) = 2,394, p < 0.001. For the
-intensive margin (positive expenditure), the Gamma GLM with log link reduces
-deviance from 10,693 to 8,991 (χ²(21) = 1,702, p < 0.001). Thus, in both parts
-the covariates jointly provide a statistically important improvement in fit.
+## Model 1: Health care expenditure
 
-In the Probit model, older age, female gender, higher BMI, worse self-reported
-general health, the presence of hypertension or hyperlipidemia, higher income,
-and more non-physician visits (ndvisit) are all associated with a higher
-probability of incurring any doctor-visit expenditure (all p < 0.01). Residence
-in the South and West and being in the “Other” ethnic group are associated with
-a lower probability of any expenditure, suggesting regional and ethnic
-differences in access or utilisation.
+The two-part model effectively captures the dual processes of access and cost. 
+In the first stage (Probit), females, older adults, and those with
+chronic conditions (hypertension, hyperlipidemia) were significantly more likely
+to incur expenditure (Table \@ref(tab:coeftableexpen)).
 
-In the Gamma model, coefficients can be interpreted multiplicatively on the
-mean conditional cost: a coefficient β corresponds to an approximate
-100·(e^β − 1)% change in expected expenditure, holding other variables constant.
-For example, conditional on having any expenditure, males spend around
-`r round(100*(exp(coef(m_part2)["genderMale"])-1))`% less on doctor visits than
-females, while individuals reporting fair and poor general health have
-approximately `r round(100*(exp(coef(m_part2)["generalFair"])-1))`% and
-`r round(100*(exp(coef(m_part2)["generalPoor"])-1))` higher expected expenditure
-than those reporting excellent health. A 10-year increase in age is associated
-with roughly a `r round(100*(exp(10*coef(m_part2)["age"])-1))`% increase in
-conditional costs, and each additional non-physician visit corresponds to an
-estimated `r round(100*(exp(coef(m_part2)["ndvisit"])-1))`% increase in
-doctor-visit expenditure. These patterns are consistent with clinical
-expectations: older, sicker, and more health-engaged individuals both enter the
-system more often and incur higher costs once they do so.
+In the second stage (Gamma GLM), conditional on seeking care, significant
+disparities in expenditure emerged. A 10-year increase in age is
+associated with approximately a `r round(100*(exp(10*coef(m_part2)["age"])-1))`%
+increase in conditional costs. Notably, males incur approximately 
+`r round(100*(1- exp(coef(m_part2)["genderMale"])), 1)`% lower costs than 
+females (p
+`r format_p_vals(summary(m_part2)$coefficients["genderMale", "Pr(>|t|)"])`). 
+This finding aligns with work by @bertakisgender2000 who suggests women have 
+higher healthcare engagement and diagnostic usage during reproductive years and 
+for preventive screenings.
 
-Model predictions for total annual expenditure are reasonably well calibrated.
-The two-part model achieves an RMSE of approximately
-$`r round(rmse, 0)` and a MAE of $`r round(mae, 0)`. The predicted aggregate
-cost is within `r round(bias_percent, 1)`% of the observed total, indicating
-minimal overall bias. However, the error distribution is highly asymmetric:
-Figure X shows that prediction errors are centred near zero for patients with
-low or moderate expenditure, but the model tends to under-predict spending in
-the highest cost categories (≥ $10k), reflecting the difficulty of capturing
-rare catastrophic costs with a parametric model.
+Self-reported general and mental health showed a strong gradient as 
+individuals reporting "Poor"
+health incur `r round(100*(exp(coef(m_part2)["generalPoor"])-1))`% higher costs
+than those in "Excellent" health. The predictive performance was robust at the
+aggregate level, with the total predicted cost within `r round(bias_percent, 1)`%
+of the actual total, although the model underestimates extreme outliers (Figure
+\@ref(fig:pred-error)).
+
+## Model 2: Health care utilisation
+
+Utilisation patterns mirrored expenditure. Black and "Other" ethnic groups
+showed significantly lower visit counts compared to White patients (Incident
+Rate Ratios < 1, Table \@ref(tab:coef-table-count)), consistent with structural
+barriers to access documented in the US healthcare system [@cook2010].
+Non-physician visits (ndvisit) were positively associated with doctor visits
+(approximately `r round(100*(exp(coef(m_count)["ndvisit"])-1))`% increase per
+visit), suggesting complementarity rather than substitution between provider
+types.
+
+## Dependence structure
+
+The copula analysis of positive spenders revealed a moderate-to-strong positive dependence between frequency and severity (Gaussian Copula Kendall’s τ≈‘rround(tauh​at,2)‘). This implies that "heavy users" (high visit frequency) also tend to have higher-than-expected costs per visit, suggesting a compounding resource burden for high-need patients.
 
 
 
-```{r coef-table-expen, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
+```{r coeftableexpen, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
 #---------------- Expendature two part table (semi-automated) -----------------#
 # qol function for this automated table
 format_p_vec <- function(x) {
@@ -1279,7 +1224,7 @@ if (knitr::is_latex_output()) {
 }
 ```
 
-```{r coef-table-count, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
+```{r coeftablecount, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
 # --- 1. Tidy Data (Single Model) ---------------------------------------------
 # We only have one model, so no joining required.
 raw_data <- broom::tidy(m_count) %>%
@@ -1449,6 +1394,102 @@ if (knitr::is_latex_output()) {
 }
 ```
 
+
+# Discussion and conclusion
+
+Tables of coefficients for the expenditure and utilisation models are shown in 
+Table \@ref(tab:coeftableexpen) and \@ref(tab:coeftablecount)
+
+For the extensive margin (any expenditure), the Probit model substantially
+reduces deviance relative to the intercept-only model (from 14,677 to 12,283),
+corresponding to a likelihood-ratio χ²(25) = 2,394, p < 0.001. For the
+intensive margin (positive expenditure), the Gamma GLM with log link reduces
+deviance from 10,693 to 8,991 (χ²(21) = 1,702, p < 0.001). Thus, in both parts
+the covariates jointly provide a statistically important improvement in fit.
+
+In the Probit model, older age, female gender, higher BMI, worse self-reported
+general health, the presence of hypertension or hyperlipidemia, higher income,
+and more non-physician visits (ndvisit) are all associated with a higher
+probability of incurring any doctor-visit expenditure (all p < 0.01). Residence
+in the South and West and being in the “Other” ethnic group are associated with
+a lower probability of any expenditure, suggesting regional and ethnic
+differences in access or utilisation.
+
+In the Gamma model, coefficients can be interpreted multiplicatively on the
+mean conditional cost: a coefficient β corresponds to an approximate
+100·(e^β − 1)% change in expected expenditure, holding other variables constant.
+For example, conditional on having any expenditure, males spend around
+`r round(100*(exp(coef(m_part2)["genderMale"])-1))`% less on doctor visits than
+females, while individuals reporting fair and poor general health have
+approximately `r round(100*(exp(coef(m_part2)["generalFair"])-1))`% and
+`r round(100*(exp(coef(m_part2)["generalPoor"])-1))` higher expected expenditure
+than those reporting excellent health. A 10-year increase in age is associated
+with roughly a `r round(100*(exp(10*coef(m_part2)["age"])-1))`% increase in
+conditional costs, and each additional non-physician visit corresponds to an
+estimated `r round(100*(exp(coef(m_part2)["ndvisit"])-1))`% increase in
+doctor-visit expenditure. These patterns are consistent with clinical
+expectations: older, sicker, and more health-engaged individuals both enter the
+system more often and incur higher costs once they do so.
+
+Model predictions for total annual expenditure are reasonably well calibrated.
+The two-part model achieves an RMSE of approximately
+$`r round(rmse, 0)` and a MAE of $`r round(mae, 0)`. The predicted aggregate
+cost is within `r round(bias_percent, 1)`% of the observed total, indicating
+minimal overall bias. However, the error distribution is highly asymmetric:
+Figure X shows that prediction errors are centred near zero for patients with
+low or moderate expenditure, but the model tends to under-predict spending in
+the highest cost categories (≥ $10k), reflecting the difficulty of capturing
+rare catastrophic costs with a parametric model.
+
+
+```{r expen-scatter, echo=FALSE}
+ggplot(meps_results, aes(x = final_prediction, y = actual_cost)) +
+  geom_point(alpha = 0.3, color = "blue") + # Semi-transparent dots
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") + # Ideally where points should fall
+  labs(
+    title = "Actual vs. Predicted Expenditure",
+    x = "Predicted Cost ($)",
+    y = "Actual Cost ($)"
+  ) +
+  theme_minimal()
+# +
+#   coord_cartesian(xlim = c(0, 10000), ylim = c(0, 10000))
+```
+
+```{r expen-boxplot, echo=FALSE}
+# boxplot
+meps_results <- meps_results %>%
+  mutate(
+    cost_group = cut(
+      actual_cost,
+      breaks = c(-Inf, 0, 100, 1000, 5000, 10000, 20000, 40000, Inf),
+      labels = c(
+        "Zero",
+        "$1-100",
+        "$100-1k",
+        "$1k-5k",
+        "$5k+",
+        "$10k+",
+        "$20k+",
+        "$40k+"
+      )
+    )
+  )
+
+# Plot the errors for each group
+ggplot(meps_results, aes(x = cost_group, y = error)) +
+  geom_boxplot(fill = "lightblue", alpha = 0.7) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Distribution of health care expendature prediction errors",
+    # subtitle = "Box shows the IQR (Middle 50% of errors)",
+    x = "Expenditure Category",
+    y = "Prediction Error ($)"
+  ) +
+  theme_minimal()
+# +
+# coord_cartesian(ylim = c(-2000, 2000)) # Zoom in to ignore extreme outliers
+```
 
 ## Utilisation
 
@@ -1797,7 +1838,8 @@ factors.
 
 # Reproducibility, accessibility & declarations (Gen-AI & word count)
 <!-- BE note: taken out as we are submitting R file separately -->
-<!-- Use: `knitr::purl("cs1-group07.rmd", documentation = 0)` to generate r file -->
+<!-- Use: `knitr::purl("smm634-individual-assignment.rmd", documentation = 0)` 
+to generate r file -->
 <!-- Use: `tools::showNonASCIIfile("cs1-group07.rmd")` to debug -->
 <!-- ## R Code Documentation -->
 
