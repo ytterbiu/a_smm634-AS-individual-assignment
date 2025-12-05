@@ -56,7 +56,7 @@ jobs:
 
       - name: Render R Markdown (single file)
         env:
-          RMD_INPUT: cs1-group07.rmd     # ← your actual file name
+          RMD_INPUT: smm634-individual-assignment.rmd
         shell: Rscript {0}
         run: |
           dir.create("site", showWarnings = FALSE)
