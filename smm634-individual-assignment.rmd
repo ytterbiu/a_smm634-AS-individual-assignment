@@ -141,7 +141,7 @@ div(style = "background-color: #f8f9fa; padding: 20px; border: 1px solid #e9ecef
 )
 ```
 
-# Custom functions (to hide in final version)
+## Custom functions (to hide in final version)
 
 ```{r custom-functions, include=FALSE, echo=FALSE}
 #---------------------------- Custom QOL functions ----------------------------#
@@ -225,9 +225,13 @@ format_var_name <- function(x) {
     paste0("<code style='color:green'>", x, "</code>")
   }
 }
+#####################################
+# function: quick format (~legacy qol function)
+#####################################
+fmt <- function(n) {
+  formatC(n, format = "f", digits = digits, big.mark = big_mark)
+}
 ```
-
-# Introduction
 
 ```{r Load-data, include=FALSE, echo=FALSE}
 #---------------------------- Download / Load data ----------------------------#
@@ -317,7 +321,7 @@ meps <- meps_raw %>%
         "Post-Graduate"
       )
     ),
-    # --- 4. Outcomes ---
+    # adds has doctors expense check 
     has_expense = ifelse(dvexpend > 0, 1, 0)
   )
 
@@ -335,20 +339,17 @@ meps_all <- meps
 # exclude individuals with missing information
 meps_clean <- na.omit(meps_all)
 
-# "exclude individuals with zero consultations and zero associated expenditures"
-# Note: Filtering dvexpend > 0 effectively handles this and prepares for Gamma GLM
+# filter out individuals with zero consultations and zero associated expenditures
+# Note: Filtering dvexpend > 0 handles this and prepares for Gamma GLM
 meps_pos <- meps_clean %>% filter(dvexpend > 0)
 
 zero_visit_zero_cost <- sum(meps_clean$dvisit == 0 & meps_clean$dvexpend == 0)
-pos_visit_zero_cost  <- sum(meps_clean$dvisit > 0 & meps_clean$dvexpend == 0) # Free visits?
-zero_visit_pos_cost  <- sum(meps_clean$dvisit == 0 & meps_clean$dvexpend > 0) # Pre-payment?
-print(paste("Patients with 0 visits AND 0 cost:", zero_visit_zero_cost))
-print(paste("Patients with >0 visits but 0 cost:", pos_visit_zero_cost))
-print(paste("Patients with 0 visits but >0 cost:", zero_visit_pos_cost))
+pos_visit_zero_cost  <- sum(meps_clean$dvisit > 0 & meps_clean$dvexpend == 0) 
+zero_visit_pos_cost  <- sum(meps_clean$dvisit == 0 & meps_clean$dvexpend > 0) 
+# print(paste("Patients with 0 visits AND 0 cost:", zero_visit_zero_cost))
+# print(paste("Patients with >0 visits but 0 cost:", pos_visit_zero_cost))
+# print(paste("Patients with 0 visits but >0 cost:", zero_visit_pos_cost))
 
-# Verify the changes
-glimpse(meps)
-summary(meps)
 
 mean_visit <- mean(meps_clean$dvisit)
 var_visit  <- var(meps_clean$dvisit)
@@ -359,23 +360,26 @@ n_pos       <- nrow(meps_pos)
 n_dropped   <- n_total_raw - n_full
 n_zeros     <- n_full - n_pos
 
-# Calculate Zero-Cost stats based on the clean dataset
+# calculate Zero-Cost stats based on the clean dataset
 n_zero_cost <- sum(meps_clean$dvexpend == 0)
 pct_zero    <- (n_zero_cost / n_full) * 100
 
-# Optional: Stats for visits specifically
+# stats for visits specifically
 n_zero_visit <- sum(meps_clean$dvisit == 0)
 
-# Verify the changes
+# verify clean
+glimpse(meps)
+summary(meps)
 glimpse(meps_clean)
 summary(meps_clean)
 ```
 
 
 ```{r check-na, echo=FALSE, purl=FALSE, include=FALSE}
-# quick check
+#---------------------------- Check for NaN values ----------------------------#
+# quick check for NA
 if (TRUE == TRUE) {
-  # Calculate counts and percentages
+  # get counts and percentages
   check <- meps
   na_summary <- check %>%
     summarise(across(everything(), ~ sum(is.na(.)))) %>%
@@ -388,11 +392,11 @@ if (TRUE == TRUE) {
       `Missing %` = (`Missing Count` / nrow(check)) * 100,
       `Missing %` = paste0(formatC(`Missing %`, format = "f", digits = 2), "%")
     ) %>%
-    # Filter to show only variables with missing data (Optional - remove filter to see all)
+    # filter to show only variables with missing data
     # filter(`Missing Count` > 0) %>%
-    arrange(desc(`Missing Count`)) # Sort by most missing
+    arrange(desc(`Missing Count`)) 
 
-  # Render Table
+  # table
   na_summary %>%
     kbl(
       caption = "Summary of missing values (NaN) by variable in the raw dataset.",
@@ -421,10 +425,6 @@ get_cat_compare <- function(df_full, df_pos, var_name, display_name) {
     `Positive Only` = get_props(df_pos, var_name)
   )
 }
-```
-
-
-```{r process, echo=FALSE}
 # var_summary <- tibble(
 #   Variable = names(meps_raw),
 #   Type = c("Ordinal Factor", "Ordinal Factor", "Continuous", "Continuous", "Continuous", 
@@ -447,67 +447,77 @@ get_cat_compare <- function(df_full, df_pos, var_name, display_name) {
 # )
 ```
 
+# Introduction
 
-## Background
+Healthcare expenditure represents a substantial share of economic activity in
+many high-income countries. In the United States, national health spending is
+projected to reach 20.3% of Gross Domestic Product (GDP) by 2033, up from 17.6%
+in 2023 [@Keehan2025]. Accurately modelling healthcare utilisation and
+expenditure is essential for forecasting budgetary pressures, planning service
+capacity, and designing policies that can meet the needs of an ageing population
+in an efficient and sustainable way.
 
-Quoted from 'The data used in this study are available from the `GJRM.data` package in R.'
-@marramodelling2025
+The Agency for Healthcare Research and Quality (AHRQ) publishes the Medical
+Expenditure Panel Survey (MEPS), which provides detailed information on
+healthcare utilisation, associated expenditures, insurance coverage, and
+socio-demographic characteristics, all standardised to represent a full calendar
+year for each respondent [@ahrq_meps_download_2025].  These data enable one to
+quantify how healthcare use and costs vary across population groups and to
+identify factors associated with higher or lower spending, which is valuable for
+targeting interventions and evaluating potential policy reforms.
 
-MEPS source @ahrq_meps_2024 (foot note that meps.com was down...)
+From a modelling perspective, healthcare expenditure data pose several
+distributional challenges: they are non-negative, highly right-skewed (a few
+patients incur massive costs), and contain a large proportion of individuals
+with no recorded healthcare useage. Understanding both whether individuals access
+healthcare and, conditional on doing so, how much is spent is crucial for
+characterising demand and the resulting financial burden.  This report uses 2012
+MEPS data to investigate two primary outcomes related to physician services: the
+number of doctor consultations (`r format_var_name("dvisit")`), capturing
+healthcare utilisation, and the annual expenditures on doctor visits 
+(`r format_var_name("dvexpend")`), capturing the associated financial cost.
 
-<!-- # ```{r, code = readLines("MarraRadice2025-SuppCode.R")} -->
-<!-- # ``` -->
+# Methods 
 
+The 2012 MEPS dataset contains `r format(n_total_raw, big.mark=",")`
+observations on US adults aged 18–65. Tables \@ref(tab:initialOverviewCat) &
+\@ref(tab:initialOverviewNum) show the categorical and quantitative variables
+for both the full sample and a subsample of individuals with
+positive expenditure.
 
-We load the data given via Moodle text file: `meps.txt`...
-
-Data were analysed and the years of education were combined
-
-Healthcare data presents a unique frequency-severity challenge. The dataset
-provided includes `r format_var_name("dvisit")` (a count of physician
-encounters) and `r format_var_name("dvexpend")` (the total expenditure
-associated with those visits). These two variables are intrinsically linked:
-total expenditure is the accumulation of costs generated by each discrete visit.
-
-Standard econometric approaches often treat these as independent processes or
-model them sequentially. However, unobserved heterogeneity—such as a patient's
-latent health frailty or risk aversion—likely influences both the decision to
-seek care (frequency) and the intensity of treatment received (severity/cost).
-Ignoring this endogeneity can lead to biased estimates. The strategy outlined
-here validates GLMs as a baseline while positioning the Copula Additive Model as
-the superior, theoretically grounded alternative.
-
-The original dataset contained `r format(n_total_raw, big.mark=",")`
-observations. Following standard cleaning procedures, we excluded 
-`r n_dropped` individuals due to missing information on covariates. This resulted in a full
-analytical sample of `r format(n_full, big.mark=",")` patients.
-
-Furthermore, consistent with the methodology for modelling expenditure amounts
-(which requires strictly positive values), we identified a subset of 
-`r format(n_pos, big.mark=",")` patients who had at least one physician visit and
-associated expenditure. The remaining `r format(n_zeros, big.mark=",")`
-individuals (representing `r round((n_zeros/n_full)*100, 1)`% of the clean sample)
-had zero utilisation.
-
-Tables 1 and 2 present a comparison of the demographic and health
-characteristics between the full sample and the positive-utilisation subset.
-
+The covariates include demographic characteristics 
+(`r format_var_name("age")`, `r format_var_name("gender")`,
+`r format_var_name("ethnicity")`, `r format_var_name("region")`, 
+and `r format_var_name("education")`), socioeconomic status 
+(`r format_var_name("income")`),
+health indicators (`r format_var_name("BMI")`, self-reported 
+health `r format_var_name("general")` and `r format_var_name("mental")` health, 
+`r format_var_name("hypertension")`, and `r format_var_name("hyperlipidemia")`) 
+and healthcare utilisation beyond physician visits (number
+of non-physician visits, `r format_var_name("ndvisit")`). 
+`r format_var_name("ndvisit")` was retained because it
+captures an underlying propensity to use healthcare services, whereas
+non-physician expenditure (`r format_var_name("ndvexpend")`) was excluded to 
+avoid 'leakage' from using one spending outcome to predict another.
 
 ```{r initialOverviewCat, echo=FALSE}
 tab_cat_comp <- bind_rows(
   get_cat_compare(meps_clean, meps_pos, "gender", "gender"),
   get_cat_compare(meps_clean, meps_pos, "ethnicity", "ethnicity"),
-  get_cat_compare(meps_clean, meps_pos, "education_cat", "education_cat"),
+  get_cat_compare(meps_clean, meps_pos, "education_cat_detailed", "education_cat_detailed"),
   get_cat_compare(meps_clean, meps_pos, "region", "region"),
   get_cat_compare(meps_clean, meps_pos, "hypertension", "hypertension"),
   get_cat_compare(meps_clean, meps_pos, "hyperlipidemia", "hyperlipidemia")
 )
 
-header_full <- paste0("Full Sample (N=", format(n_full, big.mark = ","), ")")
-header_pos <- paste0(
-  "Positive Utilisation (N=",
-  format(n_pos, big.mark = ","),
-  ")"
+header_full <- linebreak(
+  paste0("Full Sample\n(N = ", format(n_full, big.mark = ","), ")"),
+  align = "c"
+)
+
+header_pos <- linebreak(
+  paste0("Positive expenditure\n(N = ", format(n_pos, big.mark = ","), ")"),
+  align = "c" 
 )
 
 # Render Categorical Table
@@ -519,15 +529,16 @@ cat_linesep[nrow(tab_cat_comp)] <- ""
 
 tab_cat_comp %>%
   kbl(
-    caption = "Comparison of categorical variables between the full sample and patients with positive utilisation.",
+    caption = "Frequency of categorical variables in the full sample of patients and the subset of patients with positive healthcare expenditure.",
     col.names = c("Variable", "Category", header_full, header_pos),
     booktabs = TRUE,
     escape = FALSE,
     align = c("l", "l", "c", "c"),
-    linesep = c("","","", "\\addlinespace")
+    linesep = cat_linesep   # use the vector you calculated
   ) %>%
   kable_styling(latex_options = c("hold_position", "repeat_header")) %>%
   collapse_rows(columns = 1, valign = "middle", latex_hline = "major")
+
 ```
 
 ```{r initialOverviewNum, echo=FALSE}
@@ -541,12 +552,7 @@ get_num_compare <- function(
   show_mean_se = FALSE
 ) {
   
-  # Helper: Formatting numbers
-  fmt <- function(n) {
-    formatC(n, format = "f", digits = digits, big.mark = big_mark)
-  }
-  
-  # Helper: Calculate Stat based on Toggle
+  # calculate stat based on Toggle
   calc_stat <- function(d, v) {
     x <- d[[v]]
     
@@ -560,7 +566,7 @@ get_num_compare <- function(
       return(paste0(fmt(m), " (", fmt(s), ")"))
       
     } else {
-      # --- Calculate Median [IQR] ---
+      # calculate median & [IQR]
       med <- median(x, na.rm = TRUE)
       q1 <- quantile(x, 0.25, na.rm = TRUE)
       q3 <- quantile(x, 0.75, na.rm = TRUE)
@@ -569,12 +575,11 @@ get_num_compare <- function(
     }
   }
   
-  # Calculate for both groups
+  # for both groups
   val_full <- calc_stat(df_full, var_name)
   val_pos  <- calc_stat(df_pos, var_name)
   
-  # Build Tibble
-  # We use generic column names so bind_rows works even if you mix metrics
+  # build tibble w. generic column names
   tibble(
     Variable = format_var_name(var_name),
     Description = display_name,
@@ -584,26 +589,23 @@ get_num_compare <- function(
 }
 
 tab_num_comp <- bind_rows(
-  # Normal-ish variables -> Use Mean (SE)
   get_num_compare(meps_clean, meps_pos, "bmi", "Body mass index", digits=2, show_mean_se = TRUE),
   get_num_compare(meps_clean, meps_pos, "age", "Age (years)", digits=2, show_mean_se = TRUE),
   get_num_compare(meps_clean, meps_pos, "education", "Education (no. of years)", digits=2, show_mean_se = TRUE),
-  
-  # Skewed variables -> Keep Median [IQR] (Default)
   get_num_compare(meps_clean, meps_pos, "income", "Income (USD)", digits=0, big_mark=",", show_mean_se = TRUE),
   
-  # Utilisation (counts)
+  # utilisation
   get_num_compare(meps_clean, meps_pos, "dvisit", "Doctor visits", digits=2, show_mean_se = TRUE),
   get_num_compare(meps_clean, meps_pos, "ndvisit", "Non-doctor visits", digits=2, show_mean_se = TRUE),
   
-  # Expenditure (costs)
+  # expenditure
   get_num_compare(meps_clean, meps_pos, "dvexpend", "Doctor expenditure", digits=2, big_mark=",", show_mean_se = TRUE),
   get_num_compare(meps_clean, meps_pos, "ndvexpend", "Non-doctor expenditure", digits=2, big_mark=",", show_mean_se = TRUE)
 )
-# Render Numerical Table
+
 tab_num_comp %>%
   kbl(
-    caption = "Comparison of quantitative variables (Mean and SD).",
+    caption = "Summary statistics, mean (standard deviation), for continuous variables in the full sample and among individuals with positive healthcare expenditure.",
     col.names = c("Variable", "Description", header_full, header_pos),
     booktabs = TRUE,
     escape = FALSE,
@@ -615,177 +617,12 @@ tab_num_comp %>%
   row_spec(0, bold = TRUE)
 ```
 
-# Model selection
-
-
-Healthcare expenditure data is characterized by two distinct statistical
-hurdles: a skewness in positive costs (a few patients incur massive costs) and a
-structural mass of zeros (many patients seek no care at all). In this dataset,
-`r format(n_zeros, big.mark=",")` individuals (`r round(pct_zero, 1)`%) incurred
-zero costs.
-
-Model Selection for Healthcare Expenditure: Given the semi-continuous nature of the expenditure data, we employed a Two-Part model. For the second part (modeling the amount of expenditure for those with positive costs), we utilized Lasso regression (L1 regularization) to select the most predictive features.
-
-The Lasso model was trained on the log-transformed positive expenditure data. Using the 1-Standard-Error rule (λ1se​) to favor parsimony, the algorithm selected Age, Gender, Hypertension, General Health, Mental Health, Ethnicity, Region, and Education as active predictors. Notably, BMI and interaction terms were shrunk to zero, suggesting their variance was adequately captured by the other health indicators (e.g., Hypertension) or they did not provide significant predictive power beyond the main effects.
-
-Consequently, the final Gamma GLM was fitted using only these selected variables.
-
-<!-- Gamma GLM with Log Link: This is the standard "core curriculum" approach for -->
-<!-- positive, skewed cost data (as seen in w08_glm.pdf). -->
-<!-- Lasso (Shrinkage): Use this for variable selection if you have many predictors -->
-<!-- (as per w05_ShrinkageMethods.pdf). -->
-
-<!-- Differentiation: Explicitly state you are assuming independence from utilization -->
-<!-- for the sake of the initial model, which the paper does not. -->
-
-```{r modelselection2}
-# --- 1. Filter for Positive Expenditure Only ---
-# We cannot take the log of 0, and we want to model the *amount* for those who pay.
-meps_pos <- subset(meps, dvexpend > 0)
-
-# --- 2. Create Matrix from Positive Data ---
-# Ensure we drop NAs so X and y match length
-meps_pos <- na.omit(meps_pos)
-
-X_pos <- model.matrix(
-  dvexpend ~ age * gender + 
-    bmi * hypertension + 
-    general + 
-    mental + 
-    ethnicity + 
-    region + 
-    education_cat +
-    education_cat_detailed,
-  data = meps_pos
-)[, -1]
-
-# --- 3. Define Y as LOG(Expenditure) ---
-# This normalizes the skewed cost data
-y_pos <- log(meps_pos$dvexpend)
-# y_pos <- (meps_pos$dvexpend)
-
-# --- 4. Fit Lasso ---
-set.seed(123) # For reproducibility
-cv_lasso_exp <- cv.glmnet(X_pos, y_pos, alpha = 1)
-
-# Plot to see the dip (minimum error)
-plot(cv_lasso_exp)
-
-# --- 5. Check Active Predictors ---
-# Try lambda.1se first (conservative). If still empty, try lambda.min.
-coef(cv_lasso_exp, s = "lambda.1se")
-
-m_gamma_final <- glm(
-  dvexpend ~ age + gender + general + mental + region + education_cat_detailed,
-  family = Gamma(link = "log"),
-  data = meps_pos 
-)
-
-summary(m_gamma_final)
-
-# Optional: Check the fit
-par(mfrow=c(2,2))
-plot(m_gamma_final)
-par(mfrow=c(1,1))
-
-```
-
-```{r plot-residuals, fig.height=5.4, fig.height = 6, fig.pos='!ht', fig.cap = "Idk bro I just want to sleep."}
-par(mfrow=c(2,2))
-plot(m_gamma_final)
-```
-
-```{r model selection}
-meps_clean <- na.omit(meps)
-
-# Create Model Matrix (handles dummy creation automatically)
-# We exclude the intercept column [-1] because glmnet adds its own
-X <- model.matrix(
-  dvexpend ~ (age * gender) +
-    (bmi * hypertension) +
-    general +
-    mental +
-    ethnicity +
-    region +
-    education_cat,
-  data = meps_clean
-)[, -1]
-
-y <- meps_clean$dvexpend
-
-# Fit Lasso with Cross-Validation
-cv_lasso <- cv.glmnet(X, y, alpha = 1) 
-plot(cv_lasso)
-
-# Extract Active Predictors
-coef(cv_lasso, s = "lambda.1se")
-
-# Model A: Poisson GLM
-m_pois <- glm(dvisit ~ age + gender + general + ethnicity + region + hypertension, 
-              family = poisson(link = "log"), data = meps)
-
-# Model B: Negative Binomial (Addressing Overdispersion)
-m_nb <- glm.nb(dvisit ~ age + gender + general + ethnicity + region + hypertension, 
-               data = meps)
-
-# Comparison
-AIC(m_pois, m_nb) # Lower AIC wins (likely m_nb)
-```
-
-```{r plot-residuals2, fig.height=5.4, fig.height = 6, fig.pos='!ht', fig.cap = "Idk bro I just want to sleep."}
-par(mfrow=c(2,2))
-plot(m_nb)
-```
-
-```{r model-expendature}
-m_probit <- glm(has_expense ~ age + gender + general, 
-                family = binomial(link = "probit"), data = meps)
-
-m_gamma <- glm(dvexpend ~ age + gender + general + ethnicity, 
-               family = Gamma(link = "log"), 
-               data = subset(meps, dvexpend > 0))
-```
-
-The dataset consists of `r format(n_total_raw, big.mark=",")` total observations.
-
-An initial inspection of the expenditure data reveals a significant mass of zero values. Specifically, `r format(n_zero_cost, big.mark=",")` patients (`r round(pct_zero, 1)`% of the sample) generated no healthcare expenditure during the survey period.
-
-To model the amount of expenditure, a filtered dataset of the remaining `r format(n_pos, big.mark=",")` patients who incurred positive costs was used.
-
-```{r joint-model}
-# eq_visits <- dvisit ~ age + gender + general + mental + ethnicity + region + hypertension
-# 
-# # Equation 2: Expenditure (Continuous > 0)
-# eq_expend <- dvexpend ~ age + gender + general + mental + ethnicity
-# 
-# # Define the list of equations
-# eq_list <- list(eq_visits, eq_expend)
-# 
-# # Fit the Joint Model
-# # margins: "NBI" for count, "GA" for cost
-# # Model "B" stands for Bivariate
-# joint_model <- gjrm(formula = eq_list, 
-#                     data = meps,
-#                     margins = c("NBI", "GA"), 
-#                     model = "B", 
-#                     copula = "N") # Try "J0" for tail dependence
-# 
-# # Summary
-# summary(joint_model)
-```
-
-```{=latex}
-\newpage
-```
-
-## Health-care expenditure
-
-```{r from-individual-draft, echo=FALSE, include=FALSE}
-# #################### MODELLING
-# 1. Define Y as the Binary Outcome (0 or 1)
+```{r model-expenditure, echo=FALSE, include=FALSE}
+#----------------------------- Expenditure model ------------------------------#
+# Y as the Binary Outcome (0 or 1)
 y_binary <- meps_clean$has_expense
 
-# 2. Define X (Model Matrix using the FULL dataset, not just positive)
+# X - full dataset, not just positive
 X_full <- model.matrix(
   has_expense ~ . -
     dvisit -
@@ -808,13 +645,13 @@ X_full <- model.matrix(
 #   data = meps_clean
 # )[, -1]
 
-# 3. Fit Lasso with family = "binomial" (Logistic)
+# Lasso with family = "binomial" (Logistic)
 set.seed(123)
 cv_lasso_binary <- cv.glmnet(X_full, y_binary, alpha = 1, family = "binomial")
 
-# 4. Plot and Check
-plot(cv_lasso_binary)
-print(coef(cv_lasso_binary, s = "lambda.1se"))
+# plot and check
+# plot(cv_lasso_binary)
+# print(coef(cv_lasso_binary, s = "lambda.1se"))
 
 ## now for second part
 ##
@@ -825,7 +662,7 @@ X_pos <- model.matrix(
   dvexpend ~ . -
     dvisit -
     dvexpend -
-    ndvisit - # not assumed to affect once you are in doctor's office
+    ndvisit - # playing with toggling this on and off - opted to include
     ndvexpend -
     has_expense -
     education -
@@ -836,17 +673,17 @@ X_pos <- model.matrix(
 cv_lasso_pos <- cv.glmnet(X_pos, y_pos, alpha = 1)
 
 # 5. Plot to see the error curve
-plot(cv_lasso_pos)
+# plot(cv_lasso_pos)
 
 # 6. Check Active Predictors
-coef(cv_lasso_pos, s = "lambda.1se")
+# coef(cv_lasso_pos, s = "lambda.1se")
 
 ##############################
 ##############################
 ##############################
 # Actual models
-# Part 1: Probit Model for Probability of Any Expense
-# We use the FULL dataset (meps_clean) because we are predicting Yes/No for everyone.
+# Part 1: Probit for probability of any expense
+# Using full dataset (meps_clean) to predict yes/no for everyone
 
 m_part1 <- glm(
   has_expense ~ age +
@@ -867,18 +704,18 @@ m_part1 <- glm(
 
 summary(m_part1)
 
-
+# Part 2: Gamma GLM for amount of expense if visiting
 m_part2 <- glm(
   dvexpend ~ age +
     gender +
     general +
-    mental + # Health Status
-    region + # Location
+    mental + 
+    region + 
     hypertension +
-    hyperlipidemia + # Chronic Conditions
-    income + # SES
-    ndvisit + # Utilization Proxy
-    education_cat_detailed, # Education
+    hyperlipidemia + 
+    income + 
+    ndvisit + # utilisation proxy 
+    education_cat_detailed, 
   family = Gamma(link = "log"),
   data = meps_pos
 )
@@ -886,181 +723,206 @@ m_part2 <- glm(
 summary(m_part2)
 ```
 
-```{r coef-table-two-part, results='asis', message=FALSE, warning=FALSE}
-# --- Helper Function ---
-format_p_vec <- function(x) {
-  x_num <- as.numeric(x)
-  out <- rep("", length(x_num))
-  non_na <- !is.na(x_num)
-  vals <- x_num[non_na]
-  out[non_na] <- ifelse(vals < 0.001, "<0.001", sprintf("%.3f", vals))
-  out
-}
+```{=latex}
+\newpage
+```
+## Health-care expenditure
 
-# --- 1. Tidy & Join ----------------------------------------------------------
-pt1 <- broom::tidy(m_part1) %>%
-  select(term, estimate, std.error, p.value) %>%
-  rename(pt1_est = estimate, pt1_se = std.error, pt1_p = p.value)
+Doctor-visit expenditure (`r format_var_name("dvexpend")`) is semi-continuous, 
+with a mass of zero observations 
+(`r format(n_zero_cost, big.mark=",")`, `r round(pct_zero,1)`%, incur zero 
+healthcare costs) and a highly right-skewed distribution among positive values. 
+To accommodate this structure, expenditure was modelled using a two-part 
+framework.
 
-pt2 <- broom::tidy(m_part2) %>%
-  select(term, estimate, std.error, p.value) %>%
-  rename(pt2_est = estimate, pt2_se = std.error, pt2_p = p.value)
+A two-part model was selected (instead of a log-normal model) because it permits
+the  decision to seek any care (extensive margin) and the intensity of
+expenditure conditional on care (intensive margin) to depend on different
+covariates and processes [@deb2018modeling]. The Gamma–log specification for the
+second part is recommended for skewed medical cost data as it avoids the
+retransformation bias associated with log-transformed models
+[@blough1999modeling].
 
-raw_data <- full_join(pt1, pt2, by = "term")
+A Probit model is used to estimate the probability that an individual incurs any
+doctor-visit expenditure and a Generalised Linear Model (GLM) with Gamma
+distribution and log link models the amount spent, conditional on having
+positive expenditure. The Gamma–log specification is recommended for medical
+cost data because it captures heavy right skew without the retransformation bias
+of log-normal models [@deb2018modeling]. For both parts, the choice of
+covariates was informed by a preliminary Lasso regression using the full set of
+candidate predictors, combined with prior domain knowledge. 
+`r format_var_name("ndvisit")` was retained *a priori* in both parts as a proxy 
+for latent propensity to use healthcare services. The final two-part model is
+shown in Eq. \@ref(eq:expenProbit) & \@ref(eq:expenGamma).
 
-# --- 2. Create Groups and Clean Labels ---------------------------------------
+\begin{align}
+% Part 1: Probit 
+\text{Part 1: }& \nonumber\\
+\mathbb{P}(\text{dvexpend}_i > 0) &= \Phi(\eta_{1i}) \nonumber \\
+\eta_{1i} &= \gamma_0 + \gamma_1 \text{Age}_i + \gamma_2 \text{Gender}_i + \gamma_3 \text{BMI}_i \nonumber \\
+&\quad + \gamma_4 \text{Ethnicity}_i + \gamma_5 \text{Region}_i + \gamma_6 \text{Education}_i \nonumber \\
+&\quad + \gamma_7 \text{General}_i + \gamma_8 \text{Mental}_i \nonumber \\
+&\quad + \gamma_9 \text{Hypertension}_i + \gamma_{10} \text{Hyperlipidemia}_i \nonumber \\
+&\quad + \gamma_{11} \text{Income}_i + \gamma_{12} \text{Ndvisit}_i (\#eq:expenProbit) \\[10pt]
+% Part 2: Gamma
+\text{Part 2: }& \nonumber\\
+\mathbb{E}[\text{dvexpend}_i &\mid \text{dvexpend}_i > 0] = \mu_i \nonumber \\
+\ln(\mu_i) &= \beta_0 + \beta_1 \text{Age}_i + \beta_2 \text{Gender}_i \nonumber \\
+&\quad + \beta_3 \text{Region}_i + \beta_4 \text{Education}_i \nonumber \\
+&\quad + \beta_5 \text{General}_i + \beta_6 \text{Mental}_i \nonumber \\
+&\quad + \beta_7 \text{Hypertension}_i + \beta_8 \text{Hyperlipidemia}_i \nonumber \\
+&\quad + \beta_9 \text{Income}_i + \beta_{10} \text{Ndvisit}_i (\#eq:expenGamma)
+\end{align}
+Where $\eta_{1i}$ is the linear predictor for the Probit model,
+$\gamma_j$ are the coefficients for the Probit, and $\beta_j$ are the
+coefficients for the Gamma GLM with a log link in the second part. 
 
-clean_data <- raw_data %>%
-  mutate(
-    # A. Define the Group Names
-    var_group = case_when(
-      term == "(Intercept)" ~ "Intercept",
-      str_starts(term, "age") ~ "Age", 
-      str_starts(term, "bmi") ~ "BMI",
-      str_starts(term, "education") ~ "Education (ref: Less than High School)",
-      str_starts(term, "ethnicity") ~ "Ethnicity (ref: White)",
-      str_starts(term, "gender")    ~ "Gender (ref: Female)",
-      str_starts(term, "general")   ~ "General Health (ref: Excellent)", 
-      str_starts(term, "hyperlipidemia") ~ "Hyperlipidemia", 
-      str_starts(term, "hypertension")   ~ "Hypertension",
-      str_starts(term, "income")    ~ "Income (USD)",
-      str_starts(term, "mental")    ~ "Mental Health (ref: Excellent)",
-      str_starts(term, "ndvisit")   ~ "Number of non-doctor visits",
-      str_starts(term, "region")    ~ "Region (ref: Northeast)",
-      TRUE ~ "Other"
-    ),
-    
-    # B. Define the Row Labels (stripping prefixes)
-    label = case_when(
-      term == "(Intercept)" ~ "(Intercept)",
-      str_starts(term, "education_cat_detailed") ~ str_remove(term, "education_cat_detailed"),
-      str_starts(term, "ethnicity") ~ str_remove(term, "ethnicity"),
-      str_starts(term, "gender")    ~ str_remove(term, "gender"),
-      str_starts(term, "general")   ~ str_remove(term, "general"),
-      str_starts(term, "hyperlipidemia") ~ str_remove(term, "hyperlipidemia"),
-      str_starts(term, "hypertension")   ~ str_remove(term, "hypertension"),
-      str_starts(term, "mental")    ~ str_remove(term, "mental"),
-      str_starts(term, "region")    ~ str_remove(term, "region"),
-      TRUE ~ term
-    ),
-    
-    # C. CUSTOM ORDERING LOGIC (The "Fix")
-    
-    # Create a ranking variable for the specific rows you want ordered logically
-    # Lower number = appears first in the group
-    label_rank = case_when(
-      # Education Order
-      label == "High School Graduate" ~ 1,
-      label == "Some College"         ~ 2,
-      label == "College Graduate"     ~ 3,
-      label == "Post-Graduate"        ~ 4,
-      
-      # Health Order (Poor -> VGood)
-      label == "Poor"  ~ 1,
-      label == "Fair"  ~ 2,
-      label == "Good"  ~ 3,
-      label == "VGood" ~ 4,
-      
-      # Default for everything else (alphabetical sorts equal ranks)
-      TRUE ~ 10 
-    )
-  ) 
+```{r model-utilisation, echo = FALSE, include=FALSE}
+#----------------------------- Utilisation model ------------------------------#
+# Check for Overdispersion
+mean_visits <- mean(meps_clean$dvisit)
+var_visits <- var(meps_clean$dvisit)
 
-# --- 3. Enforce the Group Order ----------------------------------------------
+# print(paste("Mean:", round(mean_visits, 2)))
+# print(paste("Variance:", round(var_visits, 2)))
+# if var >> mean -> Poisson invalid -> use Negative Binomial.
 
-# Identify all unique groups in the data
-all_groups <- unique(clean_data$var_group)
+# using meps_clean to model 0s and positive counts.
+X_count <- model.matrix(
+  dvisit ~ . -
+    dvisit -
+    dvexpend -
+    ndvexpend - 
+    has_expense -
+    education -
+    education_cat, 
+  data = meps_clean
+)[, -1]
 
-# Define the specific top priority groups
-top_groups <- c(
-  "Intercept", 
-  "General Health (ref: Exc)", 
-  "Mental Health (ref: Exc)"
+y_count <- meps_clean$dvisit
+
+# lasso (poisson)
+cv_lasso_count <- cv.glmnet(X_count, y_count, family = "poisson", alpha = 1)
+
+# check selected variables
+coef(cv_lasso_count, s = "lambda.1se")
+
+# pois
+m_pois <- glm(
+  dvisit ~ age +
+    gender +
+    bmi +
+    general +
+    mental +
+    ethnicity +
+    region +
+    hypertension +
+    hyperlipidemia +
+    income +
+    ndvisit +
+    education_cat_detailed,
+  family = poisson(link = "log"),
+  data = meps_clean
 )
 
-# Combine: Top groups + the rest (sorted alphabetically)
-final_group_order <- c(
-  top_groups, 
-  sort(setdiff(all_groups, top_groups))
+# Negative Binomial Model for Utilization
+m_count <- glm.nb(
+  dvisit ~ age +
+    gender +
+    bmi + 
+    general +
+    mental + 
+    ethnicity +
+    region + 
+    hypertension +
+    hyperlipidemia +
+    income +
+    ndvisit +
+    education_cat_detailed, 
+  data = meps_clean
 )
 
-# Apply the sorting
-sorted_data <- clean_data %>%
-  # 1. Turn var_group into a factor with our custom order
-  mutate(var_group = factor(var_group, levels = final_group_order)) %>%
-  # 2. Arrange by Group, then by our Custom Rank, then Alphabetically
-  arrange(var_group, label_rank, label) %>%
-  # 3. Format numbers
-  mutate(
-    pt1_est = ifelse(is.na(pt1_est), "", sprintf("%.3f", pt1_est)),
-    pt1_se  = ifelse(is.na(pt1_se),  "", sprintf("%.3f", pt1_se)),
-    pt2_est = ifelse(is.na(pt2_est), "", sprintf("%.3f", pt2_est)),
-    pt2_se  = ifelse(is.na(pt2_se),  "", sprintf("%.3f", pt2_se)),
-    pt1_p   = format_p_vec(pt1_p),
-    pt2_p   = format_p_vec(pt2_p)
-  )
+summary(m_count)
 
-# --- 4. Prepare for Kable ----------------------------------------------------
+# saving metrics to use in-line
+# checking pois vs negative binomial through AIC
+AIC(m_pois, m_count)
+aic_pois   <- AIC(m_pois)
+aic_negbin <- AIC(m_count)
 
-# Extract indices for grouping
-group_indices <- sorted_data %>%
-  mutate(row = row_number()) %>%
-  group_by(var_group) %>%
-  summarise(start = min(row), end = max(row)) %>%
-  arrange(start) # Ensure indices follow the table order
+dispersion_pois <- sum(residuals(m_pois, type = "pearson")^2) / m_pois$df.residual
+# dispersion_pois
 
-# Select final columns (exclude helper columns)
-kable_data <- sorted_data %>% 
-  select(label, pt1_est, pt1_se, pt1_p, pt2_est, pt2_se, pt2_p)
-
-colnames(kable_data) <- c(
-  "Term",
-  "Estimate", "Std. Error", "p-value",
-  "Estimate ", "Std. Error ", "p-value "
-)
-
-# --- 5. Render ---------------------------------------------------------------
-header_labels <- c(
-  " " = 1, 
-  "Pt 1: Prob. of any expense" = 3, 
-  "Pt 2: Expenditure amount"   = 3
-)
-
-beta_symbol <- ifelse(knitr::is_latex_output(), "$\\hat{\\beta}$", "&beta;")
-
-caption_text <- paste0(
-  "Estimated coefficients (",
-  beta_symbol,
-  "), standard errors, and p-values for the two-part MEPS expenditure model. A Probit and Gamma GLM (log link) were used in combination to model the probability of incurring any expense (pt 1: Probit) and the expenditure among health care users for patients who incurred a healthcare expenditure (pt 2: Gamma GLM). Variable selection was performed independently for each step."
-)
-
-
-kbl_obj <- knitr::kable(
-  kable_data,
-  format   = ifelse(knitr::is_latex_output(), "latex", "html"),
-  booktabs = knitr::is_latex_output(),
-  caption  = caption_text,
-  align    = c("l", rep("r", ncol(kable_data) - 1)),
-  escape   = !knitr::is_latex_output()
-) %>%
-  add_header_above(header_labels, escape = !knitr::is_latex_output()) %>%
-  kable_styling(full_width = FALSE, position = "center")
-
-# Apply Grouping Headers
-for(i in 1:nrow(group_indices)) {
-  group_name <- as.character(group_indices$var_group[i])
-  # Skip Intercept header if you want (optional)
-  if(group_name == "Intercept") next 
-  
-  kbl_obj <- kbl_obj %>%
-    pack_rows(group_name, group_indices$start[i], group_indices$end[i])
-}
-
-kbl_obj
+p_overdisp <- pchisq(m_pois$deviance, df = m_pois$df.residual, lower.tail = FALSE)
+# p_overdisp
 ```
 
-```{r coeftableexpendaturetwopart, results='asis', message=FALSE, warning=FALSE}
-# --- Helper Function ---
+## Health-care utilisation
+
+To analyse the frequency of physician encounters 
+(`r format_var_name("dvisit")`), a Negative Binomial regression model was employed.
+An initial inspection of the data revealed significant overdispersion, with the
+variance of visits (`r round(var_visits, 1)`) far exceeding the mean 
+(`r round(mean_visits, 1)`), violating the equidispersion assumption of the standard
+Poisson model. 
+
+As a formal benchmark, a Poisson regression model with the same covariates as
+the final specification was fitted. A formal overdispersion test, comparing the
+Poisson residual deviance to a $\chi^2$ distribution with the corresponding
+residual degrees of freedom, yielded a Pearson dispersion of
+`r round(dispersion_pois, 2)` and p `r format_p_vals(p_overdisp)`. The Poisson
+model also had higher AIC than the Negative Binomial model
+(AIC\(_\text{Poisson}\) = `r formatC(aic_pois, format = "f", digits = 0)` 
+versus AIC\(_\text{NegBin}\) = `r formatC(aic_negbin, format = "f", digits = 0)`), further supporting 
+the Negative Binomial specification.
+
+Lasso screening and prior domain knowledge were used to inform covariate choice 
+and the final specification for the healthcare utilisation model is given in Eq
+\@ref(eq:utiliNegBin).
+
+\begin{align}
+% Count model: Negative Binomial
+\text{Count model: } \text{dvisit}_i &\sim \text{NegBin}(\mu_i, \kappa) 
+  \nonumber \\[4pt]
+\log(\mu_i) &= \beta_0 
+  + \beta_1 \text{Age}_i 
+  + \beta_2 \text{Gender}_i 
+  + \beta_3 \text{BMI}_i \nonumber \\
+&\quad + \beta_4 \text{General}_i 
+  + \beta_5 \text{Mental}_i \nonumber \\
+&\quad + \beta_6 \text{Ethnicity}_i 
+  + \beta_7 \text{Region}_i \nonumber \\
+&\quad + \beta_8 \text{Hypertension}_i 
+  + \beta_9 \text{Hyperlipidemia}_i \nonumber \\
+&\quad + \beta_{10} \text{Income}_i 
+  + \beta_{11} \text{Ndvisit}_i \nonumber \\
+&\quad + \beta_{12} \text{Education}_i (\#eq:utiliNegBin)
+\end{align}
+
+In this report, the two-part expenditure model and the utilisation model for
+doctor visits are estimated separately. Conditional on the observed covariates
+(including `r format_var_name("ndvisit")`), no additional dependence between
+visit counts and expenditure is modelled. This simplifying assumption allows
+the frequency and severity components to be analysed individually, while still
+providing a basis for future work that combines them in a joint
+frequency–severity framework.
+
+# Results and interpretation
+
+- Summarise the results obtained from both models. 
+- Provide a concise interpretation of the empirical findings, 
+- focusing on substantive implications
+
+## Summary
+
+Insert table of coefficients for both here
+
+As seen in Table \@ref(tab:coeftableexpendaturetwopart), the results indicate...
+
+
+```{r coeftableexpendaturetwopart, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
+#---------------- Expendature two part table (semi-automated) -----------------#
+# qol function for this automated table
 format_p_vec <- function(x) {
   x_num <- as.numeric(x)
   out <- rep("", length(x_num))
@@ -1070,7 +932,7 @@ format_p_vec <- function(x) {
   out
 }
 
-# --- 1. Tidy & Join ----------------------------------------------------------
+# tidy & join 
 pt1 <- broom::tidy(m_part1) %>%
   select(term, estimate, std.error, p.value) %>%
   rename(pt1_est = estimate, pt1_se = std.error, pt1_p = p.value)
@@ -1081,22 +943,22 @@ pt2 <- broom::tidy(m_part2) %>%
 
 raw_data <- full_join(pt1, pt2, by = "term")
 
-# --- 2. Create Groups and Clean Labels ---------------------------------------
+#  create groups and clean labels
 
 clean_data <- raw_data %>%
   mutate(
-    # A. Define the Group Names
+    # define gropu names
     var_group = case_when(
       term == "(Intercept)" ~ "Intercept",
       
       # --- Continuous / Non-Categorical Variables ---
-      # Grouped together to be sorted, but header will be hidden
+      # grouped together to be sorted, but hide header
       str_starts(term, "age") ~ "Non_Categorical", 
       str_starts(term, "bmi") ~ "Non_Categorical",
       str_starts(term, "income")  ~ "Non_Categorical",
       str_starts(term, "ndvisit") ~ "Non_Categorical",
       
-      # --- Categorical Variables (With explicit reference headers) ---
+      # --- Categorical Variables (w. explicit reference headers) ---
       str_starts(term, "education") ~ "Education (ref: Less than High School)",
       str_starts(term, "ethnicity") ~ "Ethnicity (ref: White)",
       str_starts(term, "gender")    ~ "Gender (ref: Female)",
@@ -1108,17 +970,18 @@ clean_data <- raw_data %>%
       TRUE ~ "Other"
     ),
     
-    # B. Define the Row Labels 
+    # define row labs 
     label = case_when(
       term == "(Intercept)" ~ "(Intercept)",
       
-      # Continuous Labels 
+      # continuous
       str_starts(term, "age") ~ "age",
       str_starts(term, "bmi") ~ "bmi",
       str_starts(term, "income")  ~ "income",
       str_starts(term, "ndvisit") ~ "ndvisit", 
       
-      # Categorical Labels (strip variable name prefix)
+      # categorical
+      # striping 'education_cat_detailed' to reduce table width
       str_starts(term, "education_cat_detailed") ~ str_remove(term, "education_cat_detailed"),
       str_starts(term, "ethnicity") ~ str_remove(term, "ethnicity"),
       str_starts(term, "gender")    ~ str_remove(term, "gender"),
@@ -1130,7 +993,7 @@ clean_data <- raw_data %>%
       TRUE ~ term
     ),
     
-    # C. CUSTOM ORDERING LOGIC for Rows
+    # custom order for rows
     label_rank = case_when(
       # Education Order
       label == "High School Graduate" ~ 1,
@@ -1148,11 +1011,11 @@ clean_data <- raw_data %>%
     )
   ) 
 
-# --- 3. Enforce the Group Order ----------------------------------------------
+# more group ordering tweaking
 
 all_groups <- unique(clean_data$var_group)
 
-# UPDATED: Must match the new text strings exactly for sorting to work
+# !note: must match the new text strings exactly for sorting to work
 top_groups <- c(
   "Intercept", 
   "Non_Categorical", 
@@ -1160,18 +1023,18 @@ top_groups <- c(
   "Mental Health (ref: Excellent)"
 )
 
-# Combine: Top groups + the rest (sorted alphabetically)
+# combine top groups & add rest (alphabetical)
 final_group_order <- c(
   top_groups, 
   sort(setdiff(all_groups, top_groups))
 )
 
 sorted_data <- clean_data %>%
-  # 1. Turn var_group into a factor with our custom order
+  # var_group into a factor with our custom order
   mutate(var_group = factor(var_group, levels = final_group_order)) %>%
-  # 2. Arrange by Group, then by our Custom Rank, then Alphabetically
+  # arrange by group, then by custom rank, then alphabetically
   arrange(var_group, label_rank, label) %>%
-  # 3. Format numbers
+  # format
   mutate(
     pt1_est = ifelse(is.na(pt1_est), "", sprintf("%.3f", pt1_est)),
     pt1_se  = ifelse(is.na(pt1_se),  "", sprintf("%.3f", pt1_se)),
@@ -1181,7 +1044,7 @@ sorted_data <- clean_data %>%
     pt2_p   = format_p_vec(pt2_p)
   )
 
-# --- 4. Prepare for Kable ----------------------------------------------------
+# Kable 
 
 group_indices <- sorted_data %>%
   mutate(row = row_number()) %>%
@@ -1197,8 +1060,6 @@ colnames(kable_data) <- c(
   "Estimate", "Std. Error", "p-value",
   "Estimate ", "Std. Error ", "p-value "
 )
-
-# --- 5. Render ---------------------------------------------------------------
 
 header_labels <- c(
   " " = 1, 
@@ -1220,7 +1081,7 @@ if (knitr::is_latex_output()) {
   cat("\\renewcommand{\\arraystretch}{1.2}\n")
 }
 
-kbl_obj <- knitr::kable(
+coeffs_expend <- knitr::kable(
   kable_data,
   format   = ifelse(knitr::is_latex_output(), "latex", "html"),
   booktabs = knitr::is_latex_output(),
@@ -1233,18 +1094,14 @@ kbl_obj <- knitr::kable(
   add_header_above(header_labels, escape = !knitr::is_latex_output()) %>%
   kable_styling(full_width = FALSE, position = "center")
 
-# Apply Grouping Headers
 for(i in 1:nrow(group_indices)) {
   group_name <- as.character(group_indices$var_group[i])
-  
-  # Skip headers for Intercept and the Non_Categorical group
   if(group_name %in% c("Intercept", "Non_Categorical")) next 
-  
-  kbl_obj <- kbl_obj %>%
+  coeffs_expend <- coeffs_expend %>%
     pack_rows(group_name, group_indices$start[i], group_indices$end[i])
 }
 
-kbl_obj
+coeffs_expend
 
 if (knitr::is_latex_output()) {
   cat("\\endgroup\n")
@@ -1252,62 +1109,124 @@ if (knitr::is_latex_output()) {
 }
 ```
 
-A two-part model was used
-
-\begin{align}
-% Part 1: Probit
-\text{Part 1: } \Pr(\text{expend}_i > 0) &= \Phi(\eta_{1i}) \nonumber \\
-\eta_{1i} &= \gamma_0 + \gamma_1 \text{Age}_i + \gamma_2 \text{Gender}_i + \gamma_3 \text{BMI}_i \nonumber \\
-&\quad + \gamma_4 \text{Ethnicity}_i + \gamma_5 \text{Region}_i + \gamma_6 \text{Education}_i \nonumber \\
-&\quad + \gamma_7 \text{GeneralHealth}_i + \gamma_8 \text{MentalHealth}_i \nonumber \\
-&\quad + \gamma_9 \text{Hypertension}_i + \gamma_{10} \text{Hyperlipidemia}_i \nonumber \\
-&\quad + \gamma_{11} \text{Income}_i + \gamma_{12} \text{NdVisit}_i \\[10pt]
-% Part 2: Gamma
-\text{Part 2: } \ln(\mu_i) &= \beta_0 + \beta_1 \text{Age}_i + \beta_2 \text{Gender}_i \nonumber \\
-&\quad + \beta_3 \text{Region}_i + \beta_4 \text{Education}_i \nonumber \\
-&\quad + \beta_5 \text{GeneralHealth}_i + \beta_6 \text{MentalHealth}_i \nonumber \\
-&\quad + \beta_7 \text{Hypertension}_i + \beta_8 \text{Hyperlipidemia}_i \nonumber \\
-&\quad + \beta_9 \text{Income}_i + \beta_{10} \text{NdVisit}_i
-\end{align}
-
-
-<!-- Φ(⋅): The Cumulative Distribution Function (CDF) of the standard normal distribution (standard notation for Probit models). -->
-
-<!-- η1i​: The linear predictor for the probability stage. -->
-
-<!-- μi​: The expected expenditure conditional on it being positive (E[Yi​∣Yi​>0]). -->
-
-<!-- γ vs β: It is important to use different Greek letters to emphasize that the effect of a variable (e.g., Age) on the probability of spending (γ1​) is different from its effect on the amount of spending (β1​). -->
-
-<!-- Note that $\text{BMI}_{i}$ and $\text{Ethnicity}_{i}$ appear in the first  -->
-<!-- equation but are absent in the second, based on the Lasso variable selection. -->
-
-Insert table of coefficients for both here
-
-"As seen in Table \@ref(tab:coeftableexpendaturetwopart), the results indicate..."
-
-## Health-care utilisation
-
-```{r tmp-utilisation, echo = FALSE}
-mean_visits <- mean(meps_clean$dvisit)
-var_visits <- var(meps_clean$dvisit)
-```
-
-To analyse the frequency of physician encounters (`r
-format_var_name("dvisit")`), a Negative Binomial regression model was employed.
-An initial inspection of the data revealed significant overdispersion, with the
-variance of visits (`r round(var_visits, 1)`) far exceeding the mean 
-(`r round(mean_visits, 1)`), violating the equidispersion assumption of the standard
-Poisson model. The Negative Binomial distribution accounts for this unobserved
-heterogeneity by including an additional dispersion parameter (θ)."
-
-# Model results
-
-- Summarise the results obtained from both models. 
-- Provide a concise interpretation of the empirical findings, 
-- focusing on substantive implications
 
 ## Expenditure
+
+
+```{r expenditure-predictions, echo=FALSE}
+#### Predictions
+####
+####
+# --- Step 1: Predict Probability (Part 1) ---
+# type = "response" gives us a probability between 0 and 1
+prob_any_expense <- predict(m_part1, newdata = meps_clean, type = "response")
+
+# --- Step 2: Predict Conditional Cost (Part 2) ---
+# We predict cost for EVERYONE as if they did go to the doctor.
+# type = "response" automatically undoes the Log-link (returns dollars, not log-dollars)
+cond_cost <- predict(m_part2, newdata = meps_clean, type = "response")
+
+# --- Step 3: Combine them ---
+# Expected Expenditure = Probability * Cost
+expected_expenditure <- prob_any_expense * cond_cost
+
+# --- Step 4: Add to your dataframe to compare ---
+meps_results <- meps_clean %>%
+  mutate(
+    pred_prob = prob_any_expense,
+    pred_cost_if_seen = cond_cost,
+    final_prediction = expected_expenditure,
+    actual_cost = dvexpend
+  )
+
+# Inspect the first few rows
+head(
+  meps_results %>% select(has_expense, actual_cost, pred_prob, final_prediction)
+)
+
+# evaluation of predictions
+meps_results$error <- meps_results$actual_cost - meps_results$final_prediction
+
+# 1. RMSE (Root Mean Squared Error)
+rmse <- sqrt(mean(meps_results$error^2))
+
+# 2. MAE (Mean Absolute Error)
+mae <- mean(abs(meps_results$error))
+
+# Print results
+paste0("RMSE: $", round(rmse, 2))
+paste0("MAE:  $", round(mae, 2))
+
+ggplot(meps_results, aes(x = final_prediction, y = actual_cost)) +
+  geom_point(alpha = 0.3, color = "blue") + # Semi-transparent dots
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") + # Ideally where points should fall
+  labs(
+    title = "Actual vs. Predicted Expenditure",
+    x = "Predicted Cost ($)",
+    y = "Actual Cost ($)"
+  ) +
+  theme_minimal()
+# +
+#   coord_cartesian(xlim = c(0, 10000), ylim = c(0, 10000))
+
+total_actual <- sum(meps_results$actual_cost)
+total_pred <- sum(meps_results$final_prediction)
+bias_percent <- ((total_pred - total_actual) / total_actual) * 100
+
+paste0("Total Actual Cost:    $", format(round(total_actual), big.mark = ","))
+paste0("Total Predicted Cost: $", format(round(total_pred), big.mark = ","))
+paste0("Bias: ", round(bias_percent, 2), "%")
+
+# Calculate the errors (Residuals)
+residuals <- meps_results$actual_cost - meps_results$final_prediction
+
+# 1. The IQR (Range of the middle 50%)
+iqr_metric <- IQR(residuals)
+
+# 2. Specific Percentiles (e.g., The range for 90% of patients)
+quantiles <- quantile(
+  residuals,
+  probs = c(0.01, 0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975, 0.99)
+)
+
+print(paste0("IQR of Error: $", round(iqr_metric, 2)))
+print(quantiles)
+
+# boxplot
+meps_results <- meps_results %>%
+  mutate(
+    cost_group = cut(
+      actual_cost,
+      breaks = c(-Inf, 0, 100, 1000, 5000, 10000, 20000, 40000, Inf),
+      labels = c(
+        "Zero",
+        "$1-100",
+        "$100-1k",
+        "$1k-5k",
+        "$5k+",
+        "$10k+",
+        "$20k+",
+        "$40k+"
+      )
+    )
+  )
+
+# Plot the errors for each group
+ggplot(meps_results, aes(x = cost_group, y = error)) +
+  geom_boxplot(fill = "lightblue", alpha = 0.7) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Distribution of Prediction Errors by Cost Category",
+    subtitle = "Box shows the IQR (Middle 50% of errors)",
+    x = "Actual Expenditure Category",
+    y = "Prediction Error ($)"
+  ) +
+  theme_minimal()
+# +
+# coord_cartesian(ylim = c(-2000, 2000)) # Zoom in to ignore extreme outliers
+
+```
+
 
 ## Utilisation
 
@@ -1350,7 +1269,7 @@ Therefore expected cost for a given individual is, under this model, given by
     \mathbb{E}(Y_i \mid Y_i > 0, \mathbf{x}_i).
 \end{equation}
 
-@ref(eq:probit)
+\@ref(eq:probit)
 
 ```{=latex}
 \newpage
