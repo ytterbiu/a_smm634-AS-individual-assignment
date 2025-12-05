@@ -1,11 +1,8 @@
 # MSc AS - Term 1: SMM047 Probability and Mathematical Statistics — Group Project
 
-Term 1 group project for Probability and Mathematical Statistics (50% of
-coursework grade).
+Term 1 individual project for Business Analytics (50% of coursework grade).
 
-- Group 07 working directory
-
-## Structure
+<!-- ## Structure
 
 The directory structure is as follows
 
@@ -20,7 +17,7 @@ The directory structure is as follows
 │   ├── Element 1-1.svg
 │   ├── ...
 └── README.md
-```
+``` -->
 
 ## Contents
 
@@ -35,6 +32,4 @@ For R Markdown install core package:
 
 ```r
 install.packages("rmarkdown")
-install.packages("quantmod")
-install.packages("summarytools")
 ```
