@@ -967,6 +967,122 @@ quantiles <- quantile(
 # print(quantiles)
 ```
 
+
+```{r copula, echo=FALSE, include=FALSE}
+eq_visits <- dvisit ~ age +
+  gender +
+  bmi +
+  general +
+  mental +
+  ethnicity +
+  region +
+  hypertension +
+  hyperlipidemia +
+  income +
+  ndvisit +
+  education_cat_detailed
+
+eq_cost <- dvexpend ~ age +
+  gender +
+  general +
+  mental +
+  region +
+  hypertension +
+  hyperlipidemia +
+  income +
+  ndvisit +
+  education_cat_detailed
+
+form_list <- list(eq_visits, eq_cost)
+
+fit_cop <- gjrm(
+  formula = form_list,
+  data = meps_pos, # must have both dvisit and dvexpend > 0
+  margins = c("NBII", "GA"), # NB2 for counts, Gamma for cost
+  copula = "N", # Gaussian copula
+  model = "B" # bivariate joint model
+)
+
+summary(fit_cop)
+AIC(fit_cop)
+
+theta_hat <- summary(fit_cop)$theta # copula parameter
+tau_hat <- 2 / pi * asin(theta_hat) # Kendall's tau for Gaussian copula
+tau_hat
+
+new_patient <- meps_pos[1, , drop = FALSE]
+
+copula.prob(
+  x = fit_cop,
+  y1 = 0,
+  y2 = 200,
+  newdata = new_patient,
+  joint = TRUE # TRUE = use copula; FALSE = product of marginals
+)
+
+## Under the copula model, expected expenditure rises more steeply with visit
+## counts than under an independence assumption, reflecting the positive
+## residual dependence captured by the copula.
+
+emp_cop_df <- meps_pos %>%
+  mutate(
+    u1 = rank(dvisit) / (n() + 1),
+    u2 = rank(dvexpend) / (n() + 1)
+  )
+
+# # Looking at comparison to previous approach
+# fit_ind <- gjrm(
+#   formula = form_list,
+#   data = meps_pos,
+#   margins = c("NBII", "GA"),
+#   copula = "I", # independence
+#   model = "B"
+# )
+# 
+# AIC(fit_ind, fit_cop)
+# 
+
+m_count_pos <- glm.nb(
+  dvisit ~ age +
+    gender +
+    bmi +
+    general +
+    mental +
+    ethnicity +
+    region +
+    hypertension +
+    hyperlipidemia +
+    income +
+    ndvisit +
+    education_cat_detailed,
+  data = meps_pos
+)
+
+# Marginal cost model on positive spenders
+m_part2_pos <- glm(
+  dvexpend ~ age +
+    gender +
+    general +
+    mental +
+    region +
+    hypertension +
+    hyperlipidemia +
+    income +
+    ndvisit +
+    education_cat_detailed,
+  family = Gamma(link = "log"),
+  data = meps_pos
+)
+
+AIC_ind_proxy <- AIC(m_count_pos) + AIC(m_part2_pos)
+AIC_cop <- AIC(fit_cop)
+
+AIC_ind_proxy
+AIC_cop
+AIC_ind_proxy - AIC_cop
+```
+
+
 # Results
 
 Both the Gamma and Negative Binomial models were fitted with a log link, so
@@ -981,49 +1097,6 @@ and the percent change is given by
 $$
 100\left(\exp(\Delta \beta_k)-1\right)\%.
 $$
-
-## Model 1: Health care expenditure
-
-The two-part model effectively captures the dual processes of access and cost. 
-In the first stage (Probit), females, older adults, and those with
-chronic conditions (hypertension, hyperlipidemia) were significantly more likely
-to incur expenditure (Table \@ref(tab:coeftableexpen)).
-
-In the second stage (Gamma GLM), conditional on seeking care, significant
-disparities in expenditure emerged. A 10-year increase in age is
-associated with approximately a `r round(100*(exp(10*coef(m_part2)["age"])-1))`%
-increase in conditional costs. Notably, males incur approximately 
-`r round(100*(1- exp(coef(m_part2)["genderMale"])), 1)`% lower costs than 
-females (p
-`r format_p_vals(summary(m_part2)$coefficients["genderMale", "Pr(>|t|)"])`). 
-This finding aligns with work by @bertakisgender2000 who suggests women have 
-higher healthcare engagement and diagnostic usage during reproductive years and 
-for preventive screenings.
-
-Self-reported general and mental health showed a strong gradient as 
-individuals reporting "Poor"
-health incur `r round(100*(exp(coef(m_part2)["generalPoor"])-1))`% higher costs
-than those in "Excellent" health. The predictive performance was robust at the
-aggregate level, with the total predicted cost within `r round(bias_percent, 1)`%
-of the actual total, although the model underestimates extreme outliers (Figure
-\@ref(fig:pred-error)).
-
-## Model 2: Health care utilisation
-
-Utilisation patterns mirrored expenditure. Black and "Other" ethnic groups
-showed significantly lower visit counts compared to White patients (Incident
-Rate Ratios < 1, Table \@ref(tab:coef-table-count)), consistent with structural
-barriers to access documented in the US healthcare system [@cook2010].
-Non-physician visits (ndvisit) were positively associated with doctor visits
-(approximately `r round(100*(exp(coef(m_count)["ndvisit"])-1))`% increase per
-visit), suggesting complementarity rather than substitution between provider
-types.
-
-## Dependence structure
-
-The copula analysis of positive spenders revealed a moderate-to-strong positive dependence between frequency and severity (Gaussian Copula Kendall’s τ≈‘rround(tauh​at,2)‘). This implies that "heavy users" (high visit frequency) also tend to have higher-than-expected costs per visit, suggesting a compounding resource burden for high-need patients.
-
-
 
 ```{r coeftableexpen, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
 #---------------- Expendature two part table (semi-automated) -----------------#
@@ -1395,68 +1468,42 @@ if (knitr::is_latex_output()) {
 ```
 
 
-# Discussion and conclusion
+## Model 1: Health care expenditure
 
-Tables of coefficients for the expenditure and utilisation models are shown in 
-Table \@ref(tab:coeftableexpen) and \@ref(tab:coeftablecount)
+The two-part model effectively captures the dual processes of access and cost. 
+In the first stage (Probit), females, older adults, and those with
+chronic conditions (hypertension, hyperlipidemia) were significantly more likely
+to incur expenditure (Table \@ref(tab:coeftableexpen)).
 
-For the extensive margin (any expenditure), the Probit model substantially
-reduces deviance relative to the intercept-only model (from 14,677 to 12,283),
-corresponding to a likelihood-ratio χ²(25) = 2,394, p < 0.001. For the
-intensive margin (positive expenditure), the Gamma GLM with log link reduces
-deviance from 10,693 to 8,991 (χ²(21) = 1,702, p < 0.001). Thus, in both parts
-the covariates jointly provide a statistically important improvement in fit.
+In the second stage (Gamma GLM), conditional on seeking care, significant
+disparities in expenditure emerged. A 10-year increase in age is
+associated with approximately a `r round(100*(exp(10*coef(m_part2)["age"])-1))`%
+increase in conditional costs. Notably, males incur approximately 
+`r round(100*(1- exp(coef(m_part2)["genderMale"])), 1)`% lower costs than 
+females (p
+`r format_p_vals(summary(m_part2)$coefficients["genderMale", "Pr(>|t|)"])`). 
+This finding aligns with work by @bertakisgender2000 who suggests women have 
+higher healthcare engagement and diagnostic usage during reproductive years and 
+for preventive screenings.
 
-In the Probit model, older age, female gender, higher BMI, worse self-reported
-general health, the presence of hypertension or hyperlipidemia, higher income,
-and more non-physician visits (ndvisit) are all associated with a higher
-probability of incurring any doctor-visit expenditure (all p < 0.01). Residence
-in the South and West and being in the “Other” ethnic group are associated with
-a lower probability of any expenditure, suggesting regional and ethnic
-differences in access or utilisation.
+Self-reported general and mental health showed a strong effect with individuals 
+who report "Poor" health incurring 
+`r round(100*(exp(coef(m_part2)["generalPoor"])-1))`% 
+higher costs than those in "Excellent" health.  
 
-In the Gamma model, coefficients can be interpreted multiplicatively on the
-mean conditional cost: a coefficient β corresponds to an approximate
-100·(e^β − 1)% change in expected expenditure, holding other variables constant.
-For example, conditional on having any expenditure, males spend around
-`r round(100*(exp(coef(m_part2)["genderMale"])-1))`% less on doctor visits than
-females, while individuals reporting fair and poor general health have
-approximately `r round(100*(exp(coef(m_part2)["generalFair"])-1))`% and
-`r round(100*(exp(coef(m_part2)["generalPoor"])-1))` higher expected expenditure
-than those reporting excellent health. A 10-year increase in age is associated
-with roughly a `r round(100*(exp(10*coef(m_part2)["age"])-1))`% increase in
-conditional costs, and each additional non-physician visit corresponds to an
-estimated `r round(100*(exp(coef(m_part2)["ndvisit"])-1))`% increase in
-doctor-visit expenditure. These patterns are consistent with clinical
-expectations: older, sicker, and more health-engaged individuals both enter the
-system more often and incur higher costs once they do so.
+These patterns are consistent with clinical expectations: older, sicker, and
+more health-engaged individuals both enter the system more often and incur
+higher costs once they do so.
 
-Model predictions for total annual expenditure are reasonably well calibrated.
-The two-part model achieves an RMSE of approximately
-$`r round(rmse, 0)` and a MAE of $`r round(mae, 0)`. The predicted aggregate
-cost is within `r round(bias_percent, 1)`% of the observed total, indicating
-minimal overall bias. However, the error distribution is highly asymmetric:
-Figure X shows that prediction errors are centred near zero for patients with
-low or moderate expenditure, but the model tends to under-predict spending in
-the highest cost categories (≥ $10k), reflecting the difficulty of capturing
-rare catastrophic costs with a parametric model.
+The two-part model achieves an Root Mean Square Error of
+$`r round(rmse, 0)` and a Mean Absolute Error of $`r round(mae, 0)`. 
+the predictive performance was 
+robust at the aggregate level, with the total predicted cost within
+`r round(bias_percent, 1)`% of the actual total, although the model
+underestimates extreme outliers (Figure \@ref(fig:expenboxplot)).
 
 
-```{r expen-scatter, echo=FALSE}
-ggplot(meps_results, aes(x = final_prediction, y = actual_cost)) +
-  geom_point(alpha = 0.3, color = "blue") + # Semi-transparent dots
-  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") + # Ideally where points should fall
-  labs(
-    title = "Actual vs. Predicted Expenditure",
-    x = "Predicted Cost ($)",
-    y = "Actual Cost ($)"
-  ) +
-  theme_minimal()
-# +
-#   coord_cartesian(xlim = c(0, 10000), ylim = c(0, 10000))
-```
-
-```{r expen-boxplot, echo=FALSE}
+```{r expenboxplot, echo=FALSE, fig.cap="test"}
 # boxplot
 meps_results <- meps_results %>%
   mutate(
@@ -1489,6 +1536,130 @@ ggplot(meps_results, aes(x = cost_group, y = error)) +
   theme_minimal()
 # +
 # coord_cartesian(ylim = c(-2000, 2000)) # Zoom in to ignore extreme outliers
+```
+
+## Model 2: Health care utilisation
+
+Utilisation patterns mirrored expenditure. Black and "Other" ethnic groups
+showed significantly lower visit counts compared to White patients (Incident
+Rate Ratios < 1, Table \@ref(tab:coeftablecount)), consistent with structural
+barriers to access documented in the US healthcare system [@cook2010].
+Non-physician visits (`r format_var_name("ndvisit")`) were positively 
+associated with doctor visits 
+(approximately `r round(100*(exp(coef(m_count)["ndvisit"])-1))`% increase per
+visit), suggesting complementarity rather than substitution between provider
+types.
+
+## Dependence structure
+
+The copula analysis of positive spenders revealed a moderate-to-strong positive
+dependence between frequency and severity. This implies that patients who have
+more doctor's appointments also tend to have higher-than-expected costs per
+visit, suggesting a compounding resource burden for patients with higher health
+care demands.
+
+As illustrated in Figure \@ref(fig:plots-copula), there is a clear positive
+association between the number of visits and total expenditure. While some
+mechanical correlation is expected (more visits naturally equal more cost), the
+estimated Gaussian copula parameter (Kendall’s \tau `r round(tau_hat,3)`)
+indicates a dependence that extends beyond simple accumulation. This suggests
+that 'heavy users' of the healthcare system are distinct not only in their visit
+frequency but also in their resource consumption intensity, supporting the use
+of a joint frequency-severity modelling framework.
+
+
+```{r plots-copula, echo=FALSE, fig.cap="Joint distribution of healthcare utilisation and expenditure for patients with at least one doctor's visit. The vertical banding reflects the discrete nature of visit counts and the y-axis shows total doctor-visit expenditure (dvexpend) on a logarithmic scale to accommodate skewness. The overlaying positive trend highlights that expenditure increases with visit frequency. The model-estimated Kendall’s $\tau$ quantifies the residual dependence, confirming that frequency and severity are positively correlated even after adjusting for covariates.", fig.align='center', out.width="80%"}
+ggplot(meps_pos, aes(x = dvisit, y = dvexpend)) +
+  geom_point(alpha = 0.2) +
+  scale_y_log10() +
+  # labs(
+  #   title = "Doctor-visit expenditure versus utilisation (positive spenders)",
+  #   subtitle = paste0(
+  #     "Gaussian copula Kendall's tau \u2248 ",
+  #     round(tau_hat, 2)
+  #   ),
+  labs(
+    x = "Number of doctor visits",
+    y = "Expenditure (log scale)"
+  ) +
+  theme_minimal()
+
+# Figure Y. Doctor-visit expenditure versus utilisation among positive spenders. Expenditure is shown on a log scale to emphasise the wide dispersion in costs. The increasing trend with dvisit and substantial residual spread are consistent with moderate-to-strong frequency–severity dependence (Gaussian copula Kendall’s τ≈0.52).
+# The scatterplot of dvexpend against dvisit on a log scale shows an overall positive association between utilisation and expenditure, with substantial heterogeneity in spending at each visit count. High-cost cases occurring at modest visit numbers indicate that cost intensity varies markedly across individuals, reinforcing the value of modelling frequency and severity jointly.
+```
+
+
+# Discussion and conclusion
+
+This analysis highlights the complex drivers of healthcare demand. The two-part expenditure model confirms that the decision to seek care and the resulting cost intensity are driven by overlapping but distinct magnitudes of effect. The significant gender and health-status gaps reinforce the need for risk-adjustment models that explicitly account for biological and systemic usage differences [@bertakis2000].
+
+The utilisation analysis identified significant ethnic disparities in visit frequency. Even after controlling for insurance proxies (income) and health status, minority groups accessed physicians less frequently. This supports the "Unequal Treatment" hypothesis, where systemic factors influence access independent of clinical need [@smedley2003].
+
+A key limitation of this study is the reliance on observational cross-sectional data, which precludes causal inference. While ndvisit was used as a proxy for care-seeking propensity, it may introduce endogeneity if unobserved health shocks drive both variable sets simultaneously. Furthermore, while the Gamma and Negative Binomial models handled skewness and overdispersion well, the diagnostic plots (Appendix A) show some strain in capturing the most extreme right-tail outliers—a common challenge in medical econometrics.
+
+The copula analysis adds a critical dimension: frequency and severity are not independent. The positive Kendall’s τ suggests that high-frequency users are distinct not just in volume, but in the complexity of resources consumed per visit. Future frequency-severity modelling should therefore avoid independence assumptions to prevent the underestimation of aggregate risk for high-cost patient cohorts.
+
+
+
+
+
+
+
+
+
+# Old notes
+
+Tables of coefficients for the expenditure and utilisation models are shown in 
+Table \@ref(tab:coeftableexpen) and \@ref(tab:coeftablecount)
+
+For the extensive margin (any expenditure), the Probit model substantially
+reduces deviance relative to the intercept-only model (from 14,677 to 12,283),
+corresponding to a likelihood-ratio χ²(25) = 2,394, p < 0.001. For the
+intensive margin (positive expenditure), the Gamma GLM with log link reduces
+deviance from 10,693 to 8,991 (χ²(21) = 1,702, p < 0.001). Thus, in both parts
+the covariates jointly provide a statistically important improvement in fit.
+
+In the Probit model, older age, female gender, higher BMI, worse self-reported
+general health, the presence of hypertension or hyperlipidemia, higher income,
+and more non-physician visits (ndvisit) are all associated with a higher
+probability of incurring any doctor-visit expenditure (all p < 0.01). Residence
+in the South and West and being in the “Other” ethnic group are associated with
+a lower probability of any expenditure, suggesting regional and ethnic
+differences in access or utilisation.
+
+In the Gamma model, coefficients can be interpreted multiplicatively on the
+mean conditional cost: a coefficient β corresponds to an approximate
+100·(e^β − 1)% change in expected expenditure, holding other variables constant.
+For example, conditional on having any expenditure, males spend around
+`r round(100*(exp(coef(m_part2)["genderMale"])-1))`% less on doctor visits than
+females, while individuals reporting fair and poor general health have
+approximately `r round(100*(exp(coef(m_part2)["generalFair"])-1))`% and
+`r round(100*(exp(coef(m_part2)["generalPoor"])-1))` higher expected expenditure
+than those reporting excellent health. A 10-year increase in age is associated
+with roughly a `r round(100*(exp(10*coef(m_part2)["age"])-1))`% increase in
+conditional costs, and each additional non-physician visit corresponds to an
+estimated `r round(100*(exp(coef(m_part2)["ndvisit"])-1))`% increase in
+doctor-visit expenditure. 
+
+However, the error distribution is highly asymmetric:
+Figure X shows that prediction errors are centred near zero for patients with
+low or moderate expenditure, but the model tends to under-predict spending in
+the highest cost categories (≥ $10k), reflecting the difficulty of capturing
+rare catastrophic costs with a parametric model.
+
+
+```{r expen-scatter, echo=FALSE, include=FALSE}
+ggplot(meps_results, aes(x = final_prediction, y = actual_cost)) +
+  geom_point(alpha = 0.3, color = "blue") + # Semi-transparent dots
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") + # Ideally where points should fall
+  labs(
+    title = "Actual vs. Predicted Expenditure",
+    x = "Predicted Cost ($)",
+    y = "Actual Cost ($)"
+  ) +
+  theme_minimal()
+# +
+#   coord_cartesian(xlim = c(0, 10000), ylim = c(0, 10000))
 ```
 
 ## Utilisation
@@ -1614,154 +1785,6 @@ socioeconomic, and health characteristics.
 Limitations, analysis and evaluations 
 
 Mention connections between the two here - it's heavily embedded
-
-```{r copula, echo=FALSE}
-eq_visits <- dvisit ~ age +
-  gender +
-  bmi +
-  general +
-  mental +
-  ethnicity +
-  region +
-  hypertension +
-  hyperlipidemia +
-  income +
-  ndvisit +
-  education_cat_detailed
-
-eq_cost <- dvexpend ~ age +
-  gender +
-  general +
-  mental +
-  region +
-  hypertension +
-  hyperlipidemia +
-  income +
-  ndvisit +
-  education_cat_detailed
-
-form_list <- list(eq_visits, eq_cost)
-
-fit_cop <- gjrm(
-  formula = form_list,
-  data = meps_pos, # must have both dvisit and dvexpend > 0
-  margins = c("NBII", "GA"), # NB2 for counts, Gamma for cost
-  copula = "N", # Gaussian copula
-  model = "B" # bivariate joint model
-)
-
-summary(fit_cop)
-AIC(fit_cop)
-
-theta_hat <- summary(fit_cop)$theta # copula parameter
-tau_hat <- 2 / pi * asin(theta_hat) # Kendall's tau for Gaussian copula
-tau_hat
-
-new_patient <- meps_pos[1, , drop = FALSE]
-
-copula.prob(
-  x = fit_cop,
-  y1 = 0,
-  y2 = 200,
-  newdata = new_patient,
-  joint = TRUE # TRUE = use copula; FALSE = product of marginals
-)
-
-## Under the copula model, expected expenditure rises more steeply with visit
-## counts than under an independence assumption, reflecting the positive
-## residual dependence captured by the copula.
-
-emp_cop_df <- meps_pos %>%
-  mutate(
-    u1 = rank(dvisit) / (n() + 1),
-    u2 = rank(dvexpend) / (n() + 1)
-  )
-
-ggplot(emp_cop_df, aes(u1, u2)) +
-  geom_point(alpha = 0.2) +
-  labs(
-    title = "Empirical copula of doctor visits and expenditure (positive spenders)",
-    subtitle = paste0(
-      "Gaussian copula fit: Kendall's tau \u2248 ",
-      round(tau_hat, 2)
-    ),
-    x = "Rank transform of dvisit",
-    y = "Rank transform of dvexpend"
-  ) +
-  theme_minimal()
-# Empirical copula of doctor-visit utilisation and expenditure among positive spenders. Axes show rank-transformed dvisit and dvexpend. Vertical banding reflects the discreteness of visit counts. The concentration toward the upper-right supports substantial positive dependence (Gaussian copula Kendall’s τ≈0.52).
-
-# Description
-# The empirical copula plot of ranked dvisit and dvexpend (positive spenders) shows clear positive dependence, with observations increasingly concentrated in the upper-right region. The pronounced vertical bands reflect the discrete nature of visit counts, but the overall monotone pattern is consistent with the Gaussian copula estimate of Kendall’s τ≈0.52.
-
-ggplot(meps_pos, aes(x = dvisit, y = dvexpend)) +
-  geom_point(alpha = 0.2) +
-  scale_y_log10() +
-  labs(
-    title = "Doctor-visit expenditure versus utilisation (positive spenders)",
-    subtitle = paste0(
-      "Gaussian copula Kendall's tau \u2248 ",
-      round(tau_hat, 2)
-    ),
-    x = "Number of doctor visits (dvisit)",
-    y = "Doctor-visit expenditure (dvexpend, log scale)"
-  ) +
-  theme_minimal()
-
-# Figure Y. Doctor-visit expenditure versus utilisation among positive spenders. Expenditure is shown on a log scale to emphasise the wide dispersion in costs. The increasing trend with dvisit and substantial residual spread are consistent with moderate-to-strong frequency–severity dependence (Gaussian copula Kendall’s τ≈0.52).
-# The scatterplot of dvexpend against dvisit on a log scale shows an overall positive association between utilisation and expenditure, with substantial heterogeneity in spending at each visit count. High-cost cases occurring at modest visit numbers indicate that cost intensity varies markedly across individuals, reinforcing the value of modelling frequency and severity jointly.
-
-# # Looking at comparison to previous approach
-# fit_ind <- gjrm(
-#   formula = form_list,
-#   data = meps_pos,
-#   margins = c("NBII", "GA"),
-#   copula = "I", # independence
-#   model = "B"
-# )
-# 
-# AIC(fit_ind, fit_cop)
-# 
-
-m_count_pos <- glm.nb(
-  dvisit ~ age +
-    gender +
-    bmi +
-    general +
-    mental +
-    ethnicity +
-    region +
-    hypertension +
-    hyperlipidemia +
-    income +
-    ndvisit +
-    education_cat_detailed,
-  data = meps_pos
-)
-
-# Marginal cost model on positive spenders
-m_part2_pos <- glm(
-  dvexpend ~ age +
-    gender +
-    general +
-    mental +
-    region +
-    hypertension +
-    hyperlipidemia +
-    income +
-    ndvisit +
-    education_cat_detailed,
-  family = Gamma(link = "log"),
-  data = meps_pos
-)
-
-AIC_ind_proxy <- AIC(m_count_pos) + AIC(m_part2_pos)
-AIC_cop <- AIC(fit_cop)
-
-AIC_ind_proxy
-AIC_cop
-AIC_ind_proxy - AIC_cop
-```
 
 ## Expansion 
 
