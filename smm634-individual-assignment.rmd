@@ -919,7 +919,7 @@ frequency–severity framework.
 ## Expenditure
 
 
-```{r expenditure-predictions, echo=FALSE, include=FALSE}
+```{r expenditure-predictions, echo=FALSE, include=TRUE}
 #### Predictions
 ####
 ####
@@ -947,7 +947,7 @@ meps_results <- meps_clean %>%
 
 # Inspect the first few rows
 head(
-  meps_results %>% select(has_expense, actual_cost, pred_prob, final_prediction)
+  meps_results %>% dplyr::select(has_expense, actual_cost, pred_prob, final_prediction)
 )
 
 # evaluation of predictions
@@ -1213,7 +1213,7 @@ group_indices <- sorted_data %>%
   arrange(start) 
 
 kable_data <- sorted_data %>% 
-  select(label, pt1_est, pt1_se, pt1_p, pt2_est, pt2_se, pt2_p)
+  dplyr::select(label, pt1_est, pt1_se, pt1_p, pt2_est, pt2_se, pt2_p)
 
 colnames(kable_data) <- c(
   "Term",
@@ -1386,7 +1386,7 @@ group_indices <- sorted_data %>%
   arrange(start) 
 
 kable_data <- sorted_data %>% 
-  select(label, estimate, std.error, p.value)
+  dplyr::select(label, estimate, std.error, p.value)
 
 colnames(kable_data) <- c(
   "Term",
@@ -1483,6 +1483,51 @@ otherwise similar White patients in the Northeast, after controlling for health
 status and socioeconomic factors. This is consistent with documented disparities
 in access to primary care.
 
+```{r residual-plot-gamma, echo=FALSE, include=TRUE, fig.cap="Deviance residuals versus fitted values for the Gamma GLM of conditional doctor-visit expenditure. Each point represents a respondent and the dashed line indicates a residual value of zero."}
+
+gamma_diag <- data.frame(
+  fitted = fitted(m_part2, type = "response"),
+  resid  = residuals(m_part2, type = "deviance")
+)
+
+ggplot(gamma_diag, aes(x = fitted, y = resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(alpha = 0.3) +
+  labs(
+    x = "Fitted expenditure ($)",
+    y = "Deviance residual",
+    title = "Gamma GLM: deviance residuals vs fitted"
+  ) +
+  theme_minimal()
+```
+
+Deviance residuals for the Gamma GLM are broadly centred around zero across the range of fitted expenditures, with increasing spread at higher predicted costs as expected under a Gamma–log specification. A small number of large positive residuals suggest under-prediction for some high-cost individuals, consistent with the model’s tendency to struggle with extreme expenditures.
+
+```{r echo=FALSE, include=TRUE, fig.cap="Deviance residuals versus fitted values for the Negative Binomial regression of doctor-visit counts."}
+## Negative Binomial diagnostics data
+nb_diag <- data.frame(
+  fitted = fitted(m_count, type = "response"),
+  resid  = residuals(m_count, type = "deviance")
+)
+
+ggplot(nb_diag, aes(x = fitted, y = resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(alpha = 0.3) +
+  labs(
+    x = "Fitted number of visits",
+    y = "Deviance residual",
+    title = "Negative Binomial: deviance residuals vs fitted"
+  ) +
+  theme_minimal()
+```
+
+Deviance residuals (utilisation) show no strong systematic pattern,
+with most observations clustered near zero for low fitted visit counts.
+Variability increases slightly with the fitted mean and a few large positive
+residuals appear among the highest predicted counts, indicating some
+under-prediction for the heaviest users but no major violation of the Negative
+Binomial mean–variance structure.
+
 # Strenghts and Limitations
 
 A key strength of this analysis is the alignment between the data structure and
@@ -1529,8 +1574,168 @@ Limitations, analysis and evaluations
 
 Mention connections between the two here - it's heavily embedded
 
+```{r copula, echo=FALSE}
+eq_visits <- dvisit ~ age +
+  gender +
+  bmi +
+  general +
+  mental +
+  ethnicity +
+  region +
+  hypertension +
+  hyperlipidemia +
+  income +
+  ndvisit +
+  education_cat_detailed
+
+eq_cost <- dvexpend ~ age +
+  gender +
+  general +
+  mental +
+  region +
+  hypertension +
+  hyperlipidemia +
+  income +
+  ndvisit +
+  education_cat_detailed
+
+form_list <- list(eq_visits, eq_cost)
+
+fit_cop <- gjrm(
+  formula = form_list,
+  data = meps_pos, # must have both dvisit and dvexpend > 0
+  margins = c("NBII", "GA"), # NB2 for counts, Gamma for cost
+  copula = "N", # Gaussian copula
+  model = "B" # bivariate joint model
+)
+
+summary(fit_cop)
+AIC(fit_cop)
+
+theta_hat <- summary(fit_cop)$theta # copula parameter
+tau_hat <- 2 / pi * asin(theta_hat) # Kendall's tau for Gaussian copula
+tau_hat
+
+new_patient <- meps_pos[1, , drop = FALSE]
+
+copula.prob(
+  x = fit_cop,
+  y1 = 0,
+  y2 = 200,
+  newdata = new_patient,
+  joint = TRUE # TRUE = use copula; FALSE = product of marginals
+)
+
+## Under the copula model, expected expenditure rises more steeply with visit
+## counts than under an independence assumption, reflecting the positive
+## residual dependence captured by the copula.
+
+emp_cop_df <- meps_pos %>%
+  mutate(
+    u1 = rank(dvisit) / (n() + 1),
+    u2 = rank(dvexpend) / (n() + 1)
+  )
+
+ggplot(emp_cop_df, aes(u1, u2)) +
+  geom_point(alpha = 0.2) +
+  labs(
+    title = "Empirical copula of doctor visits and expenditure (positive spenders)",
+    subtitle = paste0(
+      "Gaussian copula fit: Kendall's tau \u2248 ",
+      round(tau_hat, 2)
+    ),
+    x = "Rank transform of dvisit",
+    y = "Rank transform of dvexpend"
+  ) +
+  theme_minimal()
+# Empirical copula of doctor-visit utilisation and expenditure among positive spenders. Axes show rank-transformed dvisit and dvexpend. Vertical banding reflects the discreteness of visit counts. The concentration toward the upper-right supports substantial positive dependence (Gaussian copula Kendall’s τ≈0.52).
+
+# Description
+# The empirical copula plot of ranked dvisit and dvexpend (positive spenders) shows clear positive dependence, with observations increasingly concentrated in the upper-right region. The pronounced vertical bands reflect the discrete nature of visit counts, but the overall monotone pattern is consistent with the Gaussian copula estimate of Kendall’s τ≈0.52.
+
+ggplot(meps_pos, aes(x = dvisit, y = dvexpend)) +
+  geom_point(alpha = 0.2) +
+  scale_y_log10() +
+  labs(
+    title = "Doctor-visit expenditure versus utilisation (positive spenders)",
+    subtitle = paste0(
+      "Gaussian copula Kendall's tau \u2248 ",
+      round(tau_hat, 2)
+    ),
+    x = "Number of doctor visits (dvisit)",
+    y = "Doctor-visit expenditure (dvexpend, log scale)"
+  ) +
+  theme_minimal()
+
+# Figure Y. Doctor-visit expenditure versus utilisation among positive spenders. Expenditure is shown on a log scale to emphasise the wide dispersion in costs. The increasing trend with dvisit and substantial residual spread are consistent with moderate-to-strong frequency–severity dependence (Gaussian copula Kendall’s τ≈0.52).
+# The scatterplot of dvexpend against dvisit on a log scale shows an overall positive association between utilisation and expenditure, with substantial heterogeneity in spending at each visit count. High-cost cases occurring at modest visit numbers indicate that cost intensity varies markedly across individuals, reinforcing the value of modelling frequency and severity jointly.
+
+# # Looking at comparison to previous approach
+# fit_ind <- gjrm(
+#   formula = form_list,
+#   data = meps_pos,
+#   margins = c("NBII", "GA"),
+#   copula = "I", # independence
+#   model = "B"
+# )
+# 
+# AIC(fit_ind, fit_cop)
+# 
+
+m_count_pos <- glm.nb(
+  dvisit ~ age +
+    gender +
+    bmi +
+    general +
+    mental +
+    ethnicity +
+    region +
+    hypertension +
+    hyperlipidemia +
+    income +
+    ndvisit +
+    education_cat_detailed,
+  data = meps_pos
+)
+
+# Marginal cost model on positive spenders
+m_part2_pos <- glm(
+  dvexpend ~ age +
+    gender +
+    general +
+    mental +
+    region +
+    hypertension +
+    hyperlipidemia +
+    income +
+    ndvisit +
+    education_cat_detailed,
+  family = Gamma(link = "log"),
+  data = meps_pos
+)
+
+AIC_ind_proxy <- AIC(m_count_pos) + AIC(m_part2_pos)
+AIC_cop <- AIC(fit_cop)
+
+AIC_ind_proxy
+AIC_cop
+AIC_ind_proxy - AIC_cop
+```
+
 ## Expansion 
 
+A Kendall’s τ≈0.52 τ≈0.52 indicates moderate-to-strong positive dependence
+between utilisation and expenditure among individuals with positive doctor-visit
+costs, after adjusting for covariates. In plain terms:
+Even after controlling for demographics, socioeconomic factors, and health
+status, individuals who have more doctor visits than expected also tend to incur
+higher doctor-visit expenditures than expected.
+
+A copula-based joint model for positive spenders estimated substantial residual
+dependence between doctor-visit frequency and expenditure (Gaussian copula
+θ^=0.731 θ ^ =0.731, corresponding to Kendall’s τ^≈0.52 τ ^ ≈0.52), suggesting
+that utilisation and cost intensity are linked beyond shared observed risk
+factors.
 
 ```{=latex}
 \newpage
@@ -1619,7 +1824,22 @@ The source code for this dashboard is available via the project repository:
 
 - TBI
 
-# R Code
+# Supplementary figures & R Code
+
+```{r}
+## Gamma GLM diagnostics (Part 2)
+par(mfrow = c(2, 2))
+plot(m_part2) # uses deviance residuals for glm
+
+## Negative Binomial diagnostics
+par(mfrow = c(2, 2))
+plot(m_count) # glm.nb inherits from glm/lm -> same style of plots
+
+## Probit diagnostics (optional, appendix)
+par(mfrow = c(2, 2))
+plot(m_part1)
+par(mfrow = c(1, 1))
+```
 
 ```{=latex}
 \small
