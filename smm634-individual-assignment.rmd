@@ -27,6 +27,8 @@ output:
         google: "Source Sans Pro"
     highlight: tango
     df_print: paged
+    output_dir: "docs"
+    output_file: "index.html"
 # fontsize: 10pt
 bibliography: references.bib
 ---
@@ -141,7 +143,7 @@ div(style = "background-color: #f8f9fa; padding: 20px; border: 1px solid #e9ecef
 )
 ```
 
-## Custom functions (to hide in final version)
+<!-- ## Custom functions (to hide in final version) -->
 
 ```{r custom-functions, include=FALSE, echo=FALSE}
 #---------------------------- Custom QOL functions ----------------------------#
@@ -897,9 +899,13 @@ $$
 where $\theta$ is the association parameter. A Gaussian copula was fitted to 
 the residuals of the marginal models for individuals with positive expendature 
 using the `GJRM` package in R and Kendall's $\tau$, a measure of 
-rank correlation, was estimated [@MarraRadice2025CopulaADDR].
-
-
+rank correlation, was estimated [@MarraRadice2025CopulaADDR]. For a Gaussian 
+copula Kendall's $\tau$ is related to the latent correlation, $\theta$, by
+$$
+\tau = \frac{2}{\pi}\arcsin{(\theta)} 
+\quad \rightarrow 
+\theta = \sin{\left( \frac{\pi\tau}{2} \right)}
+$$
 ```{r expenditure-predictions, echo=FALSE, include=FALSE}
 #### Predictions
 ####
@@ -1473,12 +1479,11 @@ if (knitr::is_latex_output()) {
 The two-part model effectively captures the dual processes of access and cost. 
 In the first stage (Probit), females, older adults, and those with
 chronic conditions (hypertension, hyperlipidemia) were significantly more likely
-to incur expenditure (Table \@ref(tab:coeftableexpen)).
-
+to incur expenditure (Table \@ref(tab:coeftableexpen)). 
 In the second stage (Gamma GLM), conditional on seeking care, significant
 disparities in expenditure emerged. A 10-year increase in age is
 associated with approximately a `r round(100*(exp(10*coef(m_part2)["age"])-1))`%
-increase in conditional costs. Notably, males incur approximately 
+increase in conditional costs. Interestingly, males incur approximately 
 `r round(100*(1- exp(coef(m_part2)["genderMale"])), 1)`% lower costs than 
 females (p
 `r format_p_vals(summary(m_part2)$coefficients["genderMale", "Pr(>|t|)"])`). 
@@ -1489,21 +1494,18 @@ for preventive screenings.
 Self-reported general and mental health showed a strong effect with individuals 
 who report "Poor" health incurring 
 `r round(100*(exp(coef(m_part2)["generalPoor"])-1))`% 
-higher costs than those in "Excellent" health.  
+higher costs than those in "Excellent" health. These patterns are consistent
+with clinical expectations - individuals who are sicker and/or more 
+health-engagedboth enter the system more often and incur higher costs once they do so.
 
-These patterns are consistent with clinical expectations: older, sicker, and
-more health-engaged individuals both enter the system more often and incur
-higher costs once they do so.
-
-The two-part model achieves an Root Mean Square Error of
-$`r round(rmse, 0)` and a Mean Absolute Error of $`r round(mae, 0)`. 
-the predictive performance was 
-robust at the aggregate level, with the total predicted cost within
-`r round(bias_percent, 1)`% of the actual total, although the model
+The two-part model achieves an Root Mean Square Error of $`r round(rmse, 0)` and
+a Mean Absolute Error of $`r round(mae, 0)`. The predictive performance was
+robust at the aggregate level, with the total predicted cost within 
+`r round(bias_percent, 1)`% of the actual total, although the model 
 underestimates extreme outliers (Figure \@ref(fig:expenboxplot)).
 
 
-```{r expenboxplot, echo=FALSE, fig.cap="test"}
+```{r expenboxplot, echo=FALSE, fig.cap="Distribution of prediction errors (Actual Cost − Predicted Cost) by expenditure category. The boxplots display the median and interquartile range of errors for patients grouped by their actual healthcare expenditure and the red dashed line represents a perfect prediction. The large positive errors for the highest cost categories show that the model fails to account for the full magnitude of catastrophic health expenditures."}
 # boxplot
 meps_results <- meps_results %>%
   mutate(
@@ -1512,13 +1514,13 @@ meps_results <- meps_results %>%
       breaks = c(-Inf, 0, 100, 1000, 5000, 10000, 20000, 40000, Inf),
       labels = c(
         "Zero",
-        "$1-100",
-        "$100-1k",
-        "$1k-5k",
-        "$5k+",
-        "$10k+",
-        "$20k+",
-        "$40k+"
+        "$1–100",
+        "$100–1k",
+        "$1k–5k",
+        "$5k–10k",   
+        "$10k–20k",  
+        "$20k–40k",  
+        ">$40k"      
       )
     )
   )
@@ -1528,7 +1530,7 @@ ggplot(meps_results, aes(x = cost_group, y = error)) +
   geom_boxplot(fill = "lightblue", alpha = 0.7) +
   geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
   labs(
-    title = "Distribution of health care expendature prediction errors",
+    # title = "Distribution of health care expendature prediction errors",
     # subtitle = "Box shows the IQR (Middle 50% of errors)",
     x = "Expenditure Category",
     y = "Prediction Error ($)"
@@ -1540,12 +1542,12 @@ ggplot(meps_results, aes(x = cost_group, y = error)) +
 
 ## Model 2: Health care utilisation
 
-Utilisation patterns mirrored expenditure. Black and "Other" ethnic groups
-showed significantly lower visit counts compared to White patients (Incident
-Rate Ratios < 1, Table \@ref(tab:coeftablecount)), consistent with structural
-barriers to access documented in the US healthcare system [@cook2010].
-Non-physician visits (`r format_var_name("ndvisit")`) were positively 
-associated with doctor visits 
+As shown in Table \@ref(tab:coeftablecount), utilisation patterns mirrored
+expenditure. Black and "Other" ethnic groups showed significantly lower visit
+counts compared to White patients (Incident Rate Ratios < 1), consistent with
+structural barriers to access and utilisation documented in the US healthcare
+system [@Waidmann2000; @maciaskonstantopoulosrace2023]. Non-physician visits
+(`r format_var_name("ndvisit")`) were positively associated with doctor visits
 (approximately `r round(100*(exp(coef(m_count)["ndvisit"])-1))`% increase per
 visit), suggesting complementarity rather than substitution between provider
 types.
@@ -1554,21 +1556,23 @@ types.
 
 The copula analysis of positive spenders revealed a moderate-to-strong positive
 dependence between frequency and severity. This implies that patients who have
-more doctor's appointments also tend to have higher-than-expected costs per
-visit, suggesting a compounding resource burden for patients with higher health
-care demands.
+more doctor's appointments also tend to have higher-than-expected costs 
+_per visit_, suggesting a compounding resource burden for patients with higher 
+health care demands.
 
-As illustrated in Figure \@ref(fig:plots-copula), there is a clear positive
+As shown in Figure \@ref(fig:plots-copula), there is a clear positive
 association between the number of visits and total expenditure. While some
 mechanical correlation is expected (more visits naturally equal more cost), the
-estimated Gaussian copula parameter (Kendall’s \tau `r round(tau_hat,3)`)
-indicates a dependence that extends beyond simple accumulation. This suggests
-that 'heavy users' of the healthcare system are distinct not only in their visit
-frequency but also in their resource consumption intensity, supporting the use
-of a joint frequency-severity modelling framework.
+estimated Gaussian copula parameter (Kendall’s $\tau =$ `r round(tau_hat,3)`, 
+$\theta =$ `r round(theta_hat,3)`)
+indicates a dependence that extends beyond simple accumulation. This finding is
+in agreement with recent work by @marramodelling2025 who used the same MEPS 
+data, and also found that 'heavy' users are distinct not only in their visit
+frequency but also in their resource consumption intensity. This supports the
+use of a joint frequency-severity modelling framework over independent models.
 
 
-```{r plots-copula, echo=FALSE, fig.cap="Joint distribution of healthcare utilisation and expenditure for patients with at least one doctor's visit. The vertical banding reflects the discrete nature of visit counts and the y-axis shows total doctor-visit expenditure (dvexpend) on a logarithmic scale to accommodate skewness. The overlaying positive trend highlights that expenditure increases with visit frequency. The model-estimated Kendall’s $\tau$ quantifies the residual dependence, confirming that frequency and severity are positively correlated even after adjusting for covariates.", fig.align='center', out.width="80%"}
+```{r plots-copula, echo=FALSE, fig.cap="Joint distribution of healthcare utilisation and expenditure for patients with at least one doctor's visit. The vertical banding reflects the discrete nature of visit counts and the y-axis shows total doctor-visit expenditure on a logarithmic scale to accommodate skewness. The overlaying positive trend highlights that expenditure increases with visit frequency.", fig.align='center', out.width="80%"}
 ggplot(meps_pos, aes(x = dvisit, y = dvexpend)) +
   geom_point(alpha = 0.2) +
   scale_y_log10() +
@@ -1591,61 +1595,131 @@ ggplot(meps_pos, aes(x = dvisit, y = dvexpend)) +
 
 # Discussion and conclusion
 
-This analysis highlights the complex drivers of healthcare demand. The two-part expenditure model confirms that the decision to seek care and the resulting cost intensity are driven by overlapping but distinct magnitudes of effect. The significant gender and health-status gaps reinforce the need for risk-adjustment models that explicitly account for biological and systemic usage differences [@bertakis2000].
+This analysis highlights the multifaceted drivers of healthcare demand and
+confirms that the decision to seek care and the resulting cost intensity are
+driven by distinct, but overlapping factors. Significant gender and health-status
+gaps reinforce the need for risk-adjustment models that explicitly account for
+biological and systemic usage differences [@bertakisgender2000].
 
-The utilisation analysis identified significant ethnic disparities in visit frequency. Even after controlling for insurance proxies (income) and health status, minority groups accessed physicians less frequently. This supports the "Unequal Treatment" hypothesis, where systemic factors influence access independent of clinical need [@smedley2003].
+A key strength of this study is the application of a joint frequency-severity
+framework. The estimated Gaussian copula parameter ($\tau$ = 
+`r round(tau_hat,3)`) reveals that high-frequency patients are distinct not 
+only in volume but also in resource intensity per visit. This aligns with recent
+work by
+@marramodelling2025 on the same MEPS dataset. Reassuringly, despite their use of
+a complex Rotated Gumbel-Dagum specification, @marramodelling2025 reported a
+similar dependence ($\hat{\theta}$ = 2.67 corresponding to $\tau$ =
+0.625^[Calculated using $\tau = 1 - \frac{1}{\theta}$ for the Gumbel
+Kendall’s tau relationship.]). Replicating this association using a
+parsimonious Gamma-Gaussian framework validates the link between visit
+frequency and cost intensity as a fundamental structural feature of healthcare
+demand, rather than a model artefact.
 
-A key limitation of this study is the reliance on observational cross-sectional data, which precludes causal inference. While ndvisit was used as a proxy for care-seeking propensity, it may introduce endogeneity if unobserved health shocks drive both variable sets simultaneously. Furthermore, while the Gamma and Negative Binomial models handled skewness and overdispersion well, the diagnostic plots (Appendix A) show some strain in capturing the most extreme right-tail outliers—a common challenge in medical econometrics.
+Interpreting these coefficients as causal effects, however, is constrained by
+observational biases. While the analysis identified ethnic disparities, aligning
+with the work of @maciaskonstantopoulosrace2023 on structural limits to
+healthcare access, the omission of insurance data acts as a confounding
+variable. Coefficients for income and ethnicity likely absorb variance related
+to coverage types, potentially biasing socioeconomic conclusions. The positive
+association with non-doctor visits likely reflects simultaneity bias, where
+unobserved health shocks drive demand for both physician and non-physician care,
+rather than a clean substitution effect. In addition, selection bias is
+introduced by conditioning the Copula only on positive spenders, limiting
+generalisability to the extensive margin.
 
-The copula analysis adds a critical dimension: frequency and severity are not independent. The positive Kendall’s τ suggests that high-frequency users are distinct not just in volume, but in the complexity of resources consumed per visit. Future frequency-severity modelling should therefore avoid independence assumptions to prevent the underestimation of aggregate risk for high-cost patient cohorts.
+From a statistical standpoint, the GLM framework imposes strict linearity,
+missing non-linear health deterioration thresholds (such as rapid age-BMI
+interactions). Diagnostic plots also reveal that the Gamma distribution and
+Gaussian Copula underestimate the extreme right tail and enforce symmetric
+dependence. Future work should address these catastrophic costs, potentially by
+using tree-based machine learning (e.g., Random Forests) to detect
+non-linearities, or by integrating actuarial Extreme Value Theory (EVT).
 
+The transition from univariate averages to multivariate dependence structures is
+not just a statistical refinement, but a necessity for financial sustainability.
+Accurately modelling the compound risk of the high-cost patients through EVT and
+Copulas will enable health systems to better price the heavy tail of demand,
+ensuring the long-term viability of the health and insurance ecosystems that
+support the health of the many.
 
+<!-- This analysis highlights the complex drivers of healthcare demand. The two-part -->
+<!-- expenditure model confirms that the decision to seek care and the resulting cost -->
+<!-- intensity are driven by overlapping but distinct magnitudes of effect. The -->
+<!-- significant gender and health-status gaps reinforce the need for risk-adjustment -->
+<!-- models that explicitly account for biological and systemic usage differences -->
+<!-- [@bertakisgender2000]. -->
 
+<!-- The utilisation analysis identified significant ethnic disparities in visit -->
+<!-- frequency. Even after controlling for income (a potential insurance proxy) and -->
+<!-- self-assessed health status, minority groups accessed physicians less -->
+<!-- frequently. These findings align with a review by @maciaskonstantopoulosrace2023 -->
+<!-- identifying structural racism and implicit bias as fundamental drivers of health -->
+<!-- inequities, where systemic factors limit access and quality of care independent -->
+<!-- of clinical need. However, it should be noted that the review by -->
+<!-- @maciaskonstantopoulosrace2023 was carried out under a critical review framework -->
+<!-- designed to 'advance conceptual innovation' rather than exhaustively assess the -->
+<!-- literature, and its findings should be interpreted within this context. -->
 
+<!-- A key limitation of this study is the reliance on observational cross-sectional -->
+<!-- data, which precludes causal inference. While ndvisit was used as a proxy for -->
+<!-- care-seeking propensity, it may introduce endogeneity if unobserved health -->
+<!-- shocks drive both variable sets simultaneously. Furthermore, while the Gamma and -->
+<!-- Negative Binomial models handled skewness and overdispersion well, the -->
+<!-- diagnostic plots (Appendix \@ref(apd-model-diagnostics)) show some strain in capturing the most extreme -->
+<!-- right-tail outliers. -->
 
+<!-- The copula analysis adds a valuable dimension and accounts for the fact that  -->
+<!-- frequency and expense severity are not independent. The positive Kendall’s  -->
+<!-- $\tau$ suggests that high-frequency patients are -->
+<!-- distinct not just in volume, but in the complexity of resources consumed per -->
+<!-- visit. Future frequency-severity modelling should therefore avoid independence -->
+<!-- assumptions to prevent the underestimation of aggregate risk for high-cost -->
+<!-- patient cohorts. -->
 
+<!-- # Strengths and limitations -->
 
+<!-- A key strength of this analysis is the joint frequency–severity framework. The estimated Gaussian copula parameter ($\tau =$ `r round(tau_hat,3)`) captures the residual dependence between utilisation and expenditure, revealing that high-frequency patients exhibit higher resource intensity. This aligns with published data and @marramodelling2025, reported a similar dependence ($\tau = 0.625 \; (\text{95% confidence intervals: } 0.614, 0.635)$^[Calculated using: $\tau = 1 - \frac{1}{\theta}$]) using a complex Rotated Gumbel-Dagum specification. The replication of this finding via a more parsimonious Gamma-Gaussian model validates this association as a fundamental structural feature rather than a model artefact. -->
 
+<!-- However, causal inference is constrained by simultaneity bias (affecting non-doctor visit estimates) and the omission of insurance data, which may confound socioeconomic coefficients. Conditioning on positive spenders also introduces selection bias. Statistically, the GLM framework restricts non-linear detection—better suited for future Random Forest models—while the Gamma distribution and Gaussian Copula underestimate the extreme right tail and enforce symmetric dependence. Future work should address these catastrophic costs using heavy-tailed distributions (e.g., Dagum), asymmetric dependence structures, or actuarial Extreme Value Theory (EVT). -->
 
-# Old notes
+<!-- A strength of this analysis is the application of a joint frequency–severity -->
+<!-- framework using Copulas. While traditional approaches allow one to model -->
+<!-- utilisation and expenditure in isolation, a Copula model captures the residual -->
+<!-- dependence between these two outcomes. The estimated Gaussian copula parameter -->
+<!-- ($\tau =$ `r round(tau_hat,3)`) reveals that high frequency patients are not merely -->
+<!-- distinct in volume, but also in resource intensity.  This is a particularly  -->
+<!-- valuable insight for health service planning and is something that traditionally -->
+<!-- univariate models would be unable to detect. -->
 
-Tables of coefficients for the expenditure and utilisation models are shown in 
-Table \@ref(tab:coeftableexpen) and \@ref(tab:coeftablecount)
+<!-- These findings also align with published data and the estimated dependence -->
+<!-- structure closely mirrors recent work by @marramodelling2025 on the same MEPS -->
+<!-- dataset. Despite their use of a more complex marginal distribution (Dagum) and -->
+<!-- dependence structure (Rotated Gumbel), @marramodelling2025 reported a dependence -->
+<!-- parameter ($\hat{\theta} = 2.67 \; (2.59, 2.74)$) corresponding to a Kendall’s -->
+<!-- $\tau = 0.625 \; (0.614, 0.635)$^[Using $\tau = 1 - \frac{1}{\theta}$]. The fact -->
+<!-- that this analysis achieved a similar finding using a more parsimonious  -->
+<!-- Gamma-Gaussian framework provides strong validation of -->
+<!-- the underlying signal in the data and suggests the link between visit frequency -->
+<!-- and cost intensity is a fundamental structural feature of healthcare demand, not -->
+<!-- a model artefact. -->
 
-For the extensive margin (any expenditure), the Probit model substantially
-reduces deviance relative to the intercept-only model (from 14,677 to 12,283),
-corresponding to a likelihood-ratio χ²(25) = 2,394, p < 0.001. For the
-intensive margin (positive expenditure), the Gamma GLM with log link reduces
-deviance from 10,693 to 8,991 (χ²(21) = 1,702, p < 0.001). Thus, in both parts
-the covariates jointly provide a statistically important improvement in fit.
+<!-- While the predictive calibration effect is strong, interpreting the coefficients as -->
+<!-- causal effects is constrained by endogeneity and observational biases. The -->
+<!-- positive association with non-doctor visits likely reflects simultaneity bias, -->
+<!-- where unobserved health shocks drive demand for both physician and non-physician -->
+<!-- care, rather than a clean substitution effect. The omission of insurance -->
+<!-- structure also acts as a significant confounder, particularly for data collected -->
+<!-- in the United States. Coefficients for income and ethnicity likely absorb -->
+<!-- variance related to insurance coverage types, potentially biasing conclusions -->
+<!-- regarding socioeconomic disparities. An additional limitation is that by -->
+<!-- conditioning the Copula only on positive spenders, the analysis introduces -->
+<!-- selection bias, potentially skewing estimates and limiting generalisability to -->
+<!-- the extensive margin of the population. -->
 
-In the Probit model, older age, female gender, higher BMI, worse self-reported
-general health, the presence of hypertension or hyperlipidemia, higher income,
-and more non-physician visits (ndvisit) are all associated with a higher
-probability of incurring any doctor-visit expenditure (all p < 0.01). Residence
-in the South and West and being in the “Other” ethnic group are associated with
-a lower probability of any expenditure, suggesting regional and ethnic
-differences in access or utilisation.
+<!-- From a statistical specification standpoint, the reliance on Generalised Linear Models (GLMs) imposes strict linearity assumptions on the link scale, implying constant marginal effects across a lifetime. While Lasso regularisation effectively reduced variance, it cannot inherently detect the non-linear thresholds often present in health deterioration (for example BMI risk shifting drastically after age 50).  Future work could remedy this by employing tree-based machine learning methods, such as Random Forests or Gradient Boosting, which recursively partition data to automatically identify complex interactions.  Moreover, diagnostic plots reveal that the Gamma distribution consistently underestimates the extreme right tail, a known limitation of light-tailed distributions when modelling catastrophic health expenditures. -->
 
-In the Gamma model, coefficients can be interpreted multiplicatively on the
-mean conditional cost: a coefficient β corresponds to an approximate
-100·(e^β − 1)% change in expected expenditure, holding other variables constant.
-For example, conditional on having any expenditure, males spend around
-`r round(100*(exp(coef(m_part2)["genderMale"])-1))`% less on doctor visits than
-females, while individuals reporting fair and poor general health have
-approximately `r round(100*(exp(coef(m_part2)["generalFair"])-1))`% and
-`r round(100*(exp(coef(m_part2)["generalPoor"])-1))` higher expected expenditure
-than those reporting excellent health. A 10-year increase in age is associated
-with roughly a `r round(100*(exp(10*coef(m_part2)["age"])-1))`% increase in
-conditional costs, and each additional non-physician visit corresponds to an
-estimated `r round(100*(exp(coef(m_part2)["ndvisit"])-1))`% increase in
-doctor-visit expenditure. 
+<!-- A critical reflection on the dependence structure highlights the limitations of the Gaussian Copula, which enforces symmetric dependence across the distribution.  Whilst perhaps beyond the scope of this report, the use of a 180° Rotated Gumbel Copula by @marramodelling2025 accounts for asymmetric dependence, capturing distinct behavioural patterns in the lower and upper tails. To better address the catastrophic costs identified in the residuals, future work would move beyond standard biomedical distributions toward heavy-tailed alternatives like the Dagum (used by @marramodelling2025). Alternatively, another future direction could involve integrating techniques from actuarial science, such as Extreme Value Theory (EVT) with a Generalised Pareto Distribution, would allow for precise risk assessment of the top 1% of spenders who drive the bulk of prediction error. -->
 
-However, the error distribution is highly asymmetric:
-Figure X shows that prediction errors are centred near zero for patients with
-low or moderate expenditure, but the model tends to under-predict spending in
-the highest cost categories (≥ $10k), reflecting the difficulty of capturing
-rare catastrophic costs with a parametric model.
 
 
 ```{r expen-scatter, echo=FALSE, include=FALSE}
@@ -1662,40 +1736,37 @@ ggplot(meps_results, aes(x = final_prediction, y = actual_cost)) +
 #   coord_cartesian(xlim = c(0, 10000), ylim = c(0, 10000))
 ```
 
-## Utilisation
 
-For the count of doctor visits (`dvisit`), a Negative Binomial regression model
-was preferred to a Poisson specification. A formal overdispersion test, based on
-comparing the Poisson residual deviance to a χ² distribution with the
-corresponding residual degrees of freedom, yielded a Pearson dispersion of
-`r round(dispersion_pois, 2)` and p `r format_p_vals(p_overdisp)`. The Poisson
-model also had a much higher AIC than the Negative Binomial model
-(AIC_Poisson = `r round(aic_pois, 0)` versus AIC_NegBin =
-`r round(aic_negbin, 0)`), confirming that the Poisson variance assumption is
-not appropriate.
 
-The final Negative Binomial model reduces deviance from 13,791 to 10,439
-(χ²(25) = 3,352, p < 0.001), indicating strong joint effects of the covariates.
-Interpreting the log-link coefficients as incidence rate ratios, a 10-year
-increase in age is associated with approximately
-`r round(100*(exp(10*coef(m_count)["age"])-1))`% more doctor visits.
-Consistent with the expenditure model, males have substantially lower
-utilisation than females (about
-`r round(100*(exp(coef(m_count)["genderMale"])-1))`% fewer visits), and worse
-general health is associated with markedly higher visit frequencies; individuals
-reporting poor health have an estimated
-`r round(100*(exp(coef(m_count)["generalPoor"])-1))`% more visits than those in
-excellent health. Each additional non-physician visit is associated with roughly
-`r round(100*(exp(coef(m_count)["ndvisit"])-1))`% more doctor visits,
-illustrating the complementarity between different modes of care.
 
-Ethnic and regional patterns are also evident: Black and “Other” ethnic groups,
-and residents in the South and West, have significantly fewer visits than
-otherwise similar White patients in the Northeast, after controlling for health
-status and socioeconomic factors. This is consistent with documented disparities
-in access to primary care.
+```{=latex}
+\newpage
+\section*{Appendices}
+\addcontentsline{toc}{section}{Appendices}
+```
 
-```{r residual-plot-gamma, echo=FALSE, include=TRUE, fig.cap="Deviance residuals versus fitted values for the Gamma GLM of conditional doctor-visit expenditure. Each point represents a respondent and the dashed line indicates a residual value of zero."}
+# (APPENDIX) Appendices {-} 
+
+# Model Diagnostics {#apd-model-diagnostics}
+
+## Expenditure Model (Gamma GLM)
+The Gamma model with log link handles the skewness of positive expenditures. The
+residual plots below show no severe deviations, though some 'strain' is visible at
+the highest fitted values.
+
+```{r diag-gamma, fig.cap="Diagnostic plots for the Gamma GLM (Expenditure).", fig.height=7.5, fig.width=7, out.width="99%", fig.align='center', echo=FALSE}
+# Create a 2x2 plotting area
+par(mfrow = c(2, 2))
+plot(m_part2, which = 1:4) # Plot standard GLM diagnostics
+par(mfrow = c(1, 1)) # Reset plotting area
+```
+
+- The Q-Q plot shows points deviating sharply upwards from the diagonal line at 
+the upper quantiles. This confirms the model's limitation in capturing the most extreme catastrophic costs.
+- The Residuals vs Fitted plot displays a fanning pattern where spread increases with fitted values. This is expected for a Gamma specification, where variance scales with the mean.
+- Influential Observations: Cook’s distance values are below 0.5, indicating that no single high-cost patient is disproportionately driving the model parameters.
+
+```{r residual-plot-gamma, echo=FALSE, include=TRUE, fig.height=4, fig.cap="Deviance residuals versus fitted values for the Gamma GLM of conditional doctor-visit expenditure. Each point represents a respondent and the dashed line indicates a residual value of zero."}
 
 gamma_diag <- data.frame(
   fitted = fitted(m_part2, type = "response"),
@@ -1707,13 +1778,30 @@ ggplot(gamma_diag, aes(x = fitted, y = resid)) +
   geom_point(alpha = 0.3) +
   labs(
     x = "Fitted expenditure ($)",
-    y = "Deviance residual",
-    title = "Gamma GLM: deviance residuals vs fitted"
+    y = "Deviance residual"
+    # title = "Gamma GLM: deviance residuals vs fitted"
   ) +
   theme_minimal()
 ```
 
-Deviance residuals for the Gamma GLM are broadly centred around zero across the range of fitted expenditures, with increasing spread at higher predicted costs as expected under a Gamma–log specification. A small number of large positive residuals suggest under-prediction for some high-cost individuals, consistent with the model’s tendency to struggle with extreme expenditures.
+
+```{=latex}
+\clearpage
+\newpage
+```
+
+## Utiliation model (Negative Binomial)
+
+The Negative Binomial model accounts for overdispersion in visit counts. The
+diagnostics indicate a reasonable fit for the count data structure.
+
+```{r diag-bin, fig.cap="Diagnostic plots for the Negative Binomial (Utilisation).", fig.height=7.5, fig.width=7, out.width="90%", fig.align='center', echo=FALSE}
+par(mfrow = c(2, 2))
+plot(m_count, which = 1:4)
+par(mfrow = c(1, 1))
+```
+- The Q-Q plot follows the reference line closely, including the tails showing the Negative Binomial distribution successfully accounts for the overdispersion in the visit count data.
+- While there are some high-frequency users, Cook's distance remains low, suggesting the model is robust to these 'extreme' users.
 
 ```{r echo=FALSE, include=TRUE, fig.cap="Deviance residuals versus fitted values for the Negative Binomial regression of doctor-visit counts."}
 ## Negative Binomial diagnostics data
@@ -1727,131 +1815,37 @@ ggplot(nb_diag, aes(x = fitted, y = resid)) +
   geom_point(alpha = 0.3) +
   labs(
     x = "Fitted number of visits",
-    y = "Deviance residual",
-    title = "Negative Binomial: deviance residuals vs fitted"
+    y = "Deviance residual"
+    # title = "Negative Binomial: deviance residuals vs fitted"
   ) +
   theme_minimal()
 ```
 
-Deviance residuals (utilisation) show no strong systematic pattern,
-with most observations clustered near zero for low fitted visit counts.
-Variability increases slightly with the fitted mean and a few large positive
-residuals appear among the highest predicted counts, indicating some
-under-prediction for the heaviest users but no major violation of the Negative
-Binomial mean–variance structure.
+Deviance residuals for utilisation show no strong systematic pattern, with the
+residuals centred around the dashed horizontal line at zero, confirming the
+model structure is appropriate. The plot displays distinct curve-like
+striations, which reflect the discrete integer nature of the visit count data.
+Most observations cluster near zero, though some large positive residuals occur
+at lower fitted values, indicating occasional under-prediction where patients
+had significantly more visits than the model anticipated. The
+variance remains relatively stable across the range of fitted values, confirming
+that the Negative Binomial distribution successfully handles the overdispersion.
 
-# Strenghts and Limitations
+<!-- ```{r} -->
+<!-- ## Gamma GLM diagnostics (Part 2) -->
+<!-- par(mfrow = c(2, 2)) -->
+<!-- plot(m_part2) # uses deviance residuals for glm -->
 
-A key strength of this analysis is the alignment between the data structure and
-the chosen models. The two-part framework explicitly separates the extensive
-margin (any use) from the intensive margin (conditional costs), while the
-Negative Binomial model accommodates overdispersed visit counts. Variable
-selection was guided by Lasso screening, which helps to identify the most
-predictive covariates and reduce overfitting, before refitting unpenalised GLMs
-for interpretation. The models were estimated on a large, nationally
-representative dataset, and predictive checks suggest good calibration at the
-population level, with total predicted expenditure closely matching the
-observed total.
+<!-- ## Negative Binomial diagnostics -->
+<!-- par(mfrow = c(2, 2)) -->
+<!-- plot(m_count) # glm.nb inherits from glm/lm -> same style of plots -->
 
-However, several limitations should be noted. First, the models describe
-**associations**, not causal effects. The observational nature of MEPS means that
-unobserved factors—such as underlying disease severity, insurance plan details,
-or provider characteristics—may confound the relationships between covariates
-and utilisation or cost. For example, ndvisit is interpreted as a proxy for
-latent propensity to seek care, but it may also be affected by the same
-unobserved health shocks that drive doctor visits, introducing simultaneity.
-Second, the linear predictors assume additive effects on the link scale and do
-not capture potential non-linearities or interactions (e.g. age by comorbidity);
-future work could relax this using splines or flexible machine-learning models
-such as tree-based methods. Third, despite the use of Gamma and Negative
-Binomial families, the models still struggle to reproduce the extreme right tail
-of the cost distribution, as evidenced by the large positive errors among the
-highest-cost patients.
+<!-- ## Probit diagnostics (optional, appendix) -->
+<!-- par(mfrow = c(2, 2)) -->
+<!-- plot(m_part1) -->
+<!-- par(mfrow = c(1, 1)) -->
+<!-- ``` -->
 
-Finally, although residuals and diagnostic plots do not reveal gross
-mis-specification, the usual GLM assumptions apply at the level of the
-conditional distribution: independence of observations, correct specification of
-the mean–variance relationship, and inclusion of the most important predictors.
-Violations of these assumptions, together with potential omitted variable bias,
-limit the extent to which conclusions can be generalised or interpreted in a
-causal sense. Nevertheless, the models provide a coherent descriptive summary of
-how doctor-visit utilisation and expenditure vary with observable demographic,
-socioeconomic, and health characteristics.
-
-# Discussion 
-
-## Analysis & evaluation
-
-Limitations, analysis and evaluations 
-
-Mention connections between the two here - it's heavily embedded
-
-## Expansion 
-
-A Kendall’s τ≈0.52 τ≈0.52 indicates moderate-to-strong positive dependence
-between utilisation and expenditure among individuals with positive doctor-visit
-costs, after adjusting for covariates. In plain terms:
-Even after controlling for demographics, socioeconomic factors, and health
-status, individuals who have more doctor visits than expected also tend to incur
-higher doctor-visit expenditures than expected.
-
-A copula-based joint model for positive spenders estimated substantial residual
-dependence between doctor-visit frequency and expenditure (Gaussian copula
-θ^=0.731 θ ^ =0.731, corresponding to Kendall’s τ^≈0.52 τ ^ ≈0.52), suggesting
-that utilisation and cost intensity are linked beyond shared observed risk
-factors.
-
-```{=latex}
-\newpage
-\section*{Appendices}
-\addcontentsline{toc}{section}{Appendices}
-```
-
-# (APPENDIX) Appendices {-} 
-
-<!-- Placeholder code from CS1 project -->
-<!-- # Bonus exploration: R Shiny dashboard {#apd-dashboard} -->
-
-<!-- Because there is no corner of our souls we would not turn over for extra credit, -->
-<!-- we conducted an additional exploration of an area for future study identified in -->
-<!-- the conclusion.  Rather than re-running the analyses for multiple indices, we -->
-<!-- developed a dashboard that allows the same workflow to be applied quickly to -->
-<!-- other stock market indices. -->
-
-<!-- As R Markdown was used to write up this project, one natural approach would have -->
-<!-- been simply to update the ticker symbol and render a new R Markdown document for -->
-<!-- each index. While this would work in principle, it is not fully satisfactory: -->
-<!-- the document takes time to render (particularly with 50,000-repetition bootstrap -->
-<!-- simulations) and each iteration would require manual narrative adjustments. To -->
-<!-- address this, we developed an interactive R Shiny dashboard, hosted on -->
-<!-- https://www.shinyapps.io/, which provides a dynamic interface for rapid -->
-<!-- comparative analysis. The dashboard is available via: -->
-
-<!-- - https://3enji.shinyapps.io/SMM047-202526-Group07-Dashboard/ -->
-
-<!-- Figure \@ref(fig:appendixdashboard1) shows the dashboard start page. Clicking -->
-<!-- Run Analysis loads information for the entered Yahoo Finance ticker (with the -->
-<!-- default set to `^IXIC`). -->
-
-<!-- Figure \@ref(fig:appendixdashboard2) presents an annotated view of the user -->
-<!-- interface.  The dashboard includes (1) a Ticker Selection field that accepts -->
-<!-- standard Yahoo Finance symbols; (2–4) Data Cleaning controls, where users can -->
-<!-- define the study range and mask a specific outlier period (2020-02-24 to 2020-03-23 in the case of our report); (5) Bootstrap Settings, -->
-<!-- allowing users to choose the number of repetitions (to balance accuracy and  -->
-<!-- computation time); and (6) Analysis Tabs, which display the cleaned data, -->
-<!-- normality tests, and independence diagnostics. -->
-
-<!-- Future development may include support for multiple exclusion windows and -->
-<!-- optimisation of the bootstrapping algorithm, which is currently -->
-<!-- resource-intensive for large numbers of repetitions. While the present -->
-<!-- implementation mirrors the project’s core analysis, there is also scope to -->
-<!-- extend this to incorporate additional methods, such as assessing normality using -->
-<!-- bootstrapped kurtosis estimates and adding functionality to vary the m value in -->
-<!-- the m-out-of-n bootstrap (currently hard coded as m=13). In addition to the -->
-<!-- adjusted closing price used in this project, future enhancements could also -->
-<!-- allow users to select alternative price series (for example, open, close, or -->
-<!-- intraday mid prices) and different aggregation frequencies (for example, daily -->
-<!-- or weekly) within the app. -->
 
 
 ```{=latex}
@@ -1865,46 +1859,18 @@ factors.
 to generate r file -->
 <!-- Use: `tools::showNonASCIIfile("cs1-group07.rmd")` to debug -->
 <!-- ## R Code Documentation -->
+<!-- rmarkdown::render("smm634-individual-assignment.rmd",output_format = "bookdown::html_document2", output_file = "index.html",output_dir = "docs") -->
 
 ## Reproducibility & accessibility 
 
 An accessible HTML version of this report is available via a public GitHub page:
 
-- !TBI
+- https://ytterbiu.github.io/a_smm634-AS-individual-assignment/
 
 This report was created in R Markdown. The source code is open source and is
 available via:
 
-- !TBI
-
-Changes made to this document were tracked using Git and are also available via
-the same repository
-(!TBI). 
-
-A bonus interactive dashboard is available via:
-
-- TBI
-
-The source code for this dashboard is available via the project repository: 
-
-- TBI
-
-# Supplementary figures & R Code
-
-```{r}
-## Gamma GLM diagnostics (Part 2)
-par(mfrow = c(2, 2))
-plot(m_part2) # uses deviance residuals for glm
-
-## Negative Binomial diagnostics
-par(mfrow = c(2, 2))
-plot(m_count) # glm.nb inherits from glm/lm -> same style of plots
-
-## Probit diagnostics (optional, appendix)
-par(mfrow = c(2, 2))
-plot(m_part1)
-par(mfrow = c(1, 1))
-```
+- https://github.com/ytterbiu/a_smm634-AS-individual-assignment
 
 ```{=latex}
 \small
