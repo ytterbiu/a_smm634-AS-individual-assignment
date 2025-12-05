@@ -134,12 +134,12 @@ library(htmltools)
 
 div(style = "background-color: #f8f9fa; padding: 20px; border: 1px solid #e9ecef; border-radius: 5px; text-align: center; margin-bottom: 30px;",
   h3("Bonus Interactive Dashboard Available"),
-  p("This static report is accompanied by a live R Shiny dashboard allowing one to test different tickers, exclude specific outlier periods, and adjust bootstrap simulation parameters."),
-  a(href = "https://3enji.shinyapps.io/SMM047-202526-Group07-Dashboard/", 
+  p("This static report is accompanied by a live R Shiny dashboard."),
+  a(href = "https://3enji.shinyapps.io/smm634-meps-dashboard/", 
     target = "_blank",
     class = "btn btn-primary", 
     style = "background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;",
-    "Update this link!!!! Launch Interactive Dashboard")
+    "Launch interactive dashboard to explore the models described below!")
 )
 ```
 
