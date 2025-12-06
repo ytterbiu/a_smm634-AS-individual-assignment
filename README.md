@@ -39,7 +39,7 @@ The main interface allows you to adjust patient characteristics and view
 immediate predictions based on a standard Two-Part Model (Probit for probability
 of expense, Gamma for cost).
 
-A bonus feature (added after assessment deadline) includes a "Lock Baseline"
+A bonus feature (added after the assessment deadline) includes a "Lock Baseline"
 feature to compare different scenarios side-by-side.
 
 ![Patient Predictions Tab](readme-img-01.png)
