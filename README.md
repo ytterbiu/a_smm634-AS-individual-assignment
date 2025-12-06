@@ -2,8 +2,6 @@
 
 Term 1 individual project for Business Analytics (50% of coursework grade).
 
-- https://3enji.shinyapps.io/smm634-meps-dashboard/
-
 ## R Shiny App (basic dashboard)
 
 > [!IMPORTANT] 
@@ -30,6 +28,10 @@ This dashboard is intended to make it easier to:
   for the correlation between visits and costs.
 
 ### App / Dashboard outline
+
+The R Shiny app is available via:
+
+- https://3enji.shinyapps.io/smm634-meps-dashboard/
 
 #### 1. Patient predictions (two-part model)
 
