@@ -1,17 +1,20 @@
 #------------------------------------------------------------------------------
 # 1. SETUP & LIBRARIES
 #------------------------------------------------------------------------------
+print("STEP 1: Loading Libraries...")
 library(shiny)
 library(tidyverse)
 library(MASS)
 library(bslib)
 library(readr)
+library(GJRM)
 
 #------------------------------------------------------------------------------
-# 2. DATA LOADING & PRE-PROCESSING
+# 2. DATA LOADING
 #------------------------------------------------------------------------------
+print("STEP 2: Loading Data...")
 
-generate_synthetic_raw <- function(n = 1000) {
+generate_synthetic_raw <- function(n = 2000) {
   set.seed(123)
   data.frame(
     age = sample(18:85, n, replace = TRUE),
@@ -35,22 +38,28 @@ generate_synthetic_raw <- function(n = 1000) {
   )
 }
 
-# --- LOAD DATA ---
 if (file.exists("meps.txt")) {
-  message("Loading real data from meps.txt...")
+  message("   -> Loading real data from meps.txt...")
   meps_raw <- readr::read_delim(
     "meps.txt",
     delim = "\t",
     show_col_types = FALSE
   )
 } else {
-  message("meps.txt not found. Generating synthetic data...")
-  meps_raw <- generate_synthetic_raw(1000)
+  message("   -> meps.txt not found. Generating synthetic data...")
+  meps_raw <- generate_synthetic_raw(2000)
 }
 
-# --- CLEAN DATA ---
+#------------------------------------------------------------------------------
+# 3. DATA CLEANING
+#------------------------------------------------------------------------------
+print("STEP 3: Cleaning Data...")
+
 meps <- meps_raw %>%
   mutate(
+    # Scaling income for the Copula to avoid numerical overflow
+    income_cop = income / 1000,
+
     general = factor(
       general,
       levels = 1:5,
@@ -106,9 +115,15 @@ meps <- meps_raw %>%
   )
 
 meps_clean <- na.omit(meps)
-meps_pos <- meps_clean %>% filter(dvexpend > 0)
 
-# --- CALCULATE LIMITS ---
+print("   -> Creating meps_pos dataframe...")
+meps_pos <- as.data.frame(dplyr::filter(meps_clean, dvexpend > 0))
+
+if (nrow(meps_pos) == 0) {
+  stop("CRITICAL ERROR: meps_pos has 0 rows!")
+}
+
+# --- LIMITS ---
 limits <- list(
   age = list(min = min(meps_clean$age), max = max(meps_clean$age)),
   bmi = list(
@@ -124,8 +139,11 @@ limits <- list(
 )
 
 #------------------------------------------------------------------------------
-# 3. FIT MODELS
+# 4. MODEL TRAINING
 #------------------------------------------------------------------------------
+print("STEP 4: Training Models...")
+
+print("   -> Training GLMs...")
 m_part1 <- glm(
   has_expense ~ age +
     gender +
@@ -172,9 +190,48 @@ m_count <- glm.nb(
   data = meps_clean
 )
 
+print("   -> Training Copula (GJRM)...")
+f1 <- dvisit ~ age +
+  gender +
+  bmi +
+  general +
+  mental +
+  ethnicity +
+  region +
+  hypertension +
+  hyperlipidemia +
+  income_cop +
+  ndvisit +
+  education_cat_detailed
+f2 <- dvexpend ~ age +
+  gender +
+  general +
+  mental +
+  region +
+  hypertension +
+  hyperlipidemia +
+  income_cop +
+  ndvisit +
+  education_cat_detailed
+
+args_list <- list(
+  formula = list(f1, f2),
+  data = meps_pos,
+  margins = c("NBII", "GA"),
+  copula = "N",
+  model = "B"
+)
+
+fit_cop <- do.call(gjrm, args_list)
+
+theta_val <- summary(fit_cop)$theta
+tau_val <- 2 / pi * asin(theta_val)
+print(paste("   -> Copula Trained. Tau =", round(tau_val, 3)))
+
 #------------------------------------------------------------------------------
-# 4. UI DEFINITION
+# 5. UI DEFINITION
 #------------------------------------------------------------------------------
+print("STEP 5: Launching UI...")
 ui <- fluidPage(
   theme = bs_theme(version = 5, bootswatch = "flatly"),
   titlePanel("MEPS Healthcare Model Dashboard"),
@@ -183,8 +240,6 @@ ui <- fluidPage(
     sidebarPanel(
       width = 4,
       h4("Patient Configuration"),
-
-      # --- BUTTON GROUP ---
       div(
         class = "d-grid gap-2",
         actionButton(
@@ -200,11 +255,9 @@ ui <- fluidPage(
         )
       ),
       helpText(
-        "Bonus (added after assessment deadline): Lock a baseline, change inputs, then Estimate again to compare."
+        "(Bonus - added post assignment deadline): Lock a baseline, change inputs, then estimate again to compare."
       ),
       hr(),
-      # --------------------
-
       sliderInput(
         "age",
         "Age (Years):",
@@ -235,7 +288,6 @@ ui <- fluidPage(
         max = limits$ndvisit$max,
         value = 0
       ),
-
       hr(),
       h5("Demographics"),
       selectInput("gender", "Gender:", choices = levels(meps_clean$gender)),
@@ -250,7 +302,6 @@ ui <- fluidPage(
         choices = levels(meps_clean$education_cat_detailed)
       ),
       selectInput("region", "Region:", choices = levels(meps_clean$region)),
-
       hr(),
       h5("Clinical Factors"),
       selectInput(
@@ -269,16 +320,15 @@ ui <- fluidPage(
 
     mainPanel(
       tabsetPanel(
+        # --- TAB 1: PREDICTIONS ---
         tabPanel(
           "Predictions",
           br(),
-          h3("Model Results"),
+          h3("Standard Model Results"),
           p(
-            "Estimates based on Two-Part Model (Probit/Gamma) and Negative Binomial regression."
+            "Estimates based on separate Probit/Gamma and Negative Binomial regression."
           ),
           hr(),
-
-          # We use uiOutput here to allow dynamic HTML (Green/Red colors)
           layout_column_wrap(
             width = 1 / 2,
             card(
@@ -294,11 +344,12 @@ ui <- fluidPage(
               card_footer("Count per year")
             )
           ),
-
           br(),
           h4("Detailed Breakdown"),
           tableOutput("breakdown_table")
         ),
+
+        # --- TAB 2: POPULATION CONTEXT ---
         tabPanel(
           "Population Context",
           br(),
@@ -307,6 +358,30 @@ ui <- fluidPage(
             "Comparing the predicted expenditure against the distribution of observed positive expenditures."
           ),
           plotOutput("dist_plot", height = "500px")
+        ),
+
+        # --- TAB 3: COPULA ANALYSIS ---
+        tabPanel(
+          "(Bonus - added post assignment deadline) Copula Analysis",
+          br(),
+          h3("Joint Modeling: Visits & Cost"),
+          p(
+            "This model connects Doctor Visits and Expenditure using a Gaussian Copula to account for hidden correlations."
+          ),
+          card(
+            class = "border-primary mb-3",
+            card_header("Model Dependence Parameter"),
+            card_body(
+              h4(paste0("Kendall's Tau: ", round(tau_val, 3))),
+              p(
+                "Correlation between Visits and Cost after accounting for patient characteristics."
+              )
+            )
+          ),
+          h4("Model Comparison"),
+          tableOutput("copula_comparison_table"),
+          br(),
+          plotOutput("copula_plot", height = "400px")
         )
       )
     )
@@ -314,20 +389,15 @@ ui <- fluidPage(
 )
 
 #------------------------------------------------------------------------------
-# 5. SERVER LOGIC
+# 6. SERVER LOGIC
 #------------------------------------------------------------------------------
 server <- function(input, output, session) {
-  # Reactive Value to store the baseline predictions
   baseline_data <- reactiveVal(NULL)
 
-  # When user clicks "Lock as Baseline", save the current predictions
   observeEvent(input$save_baseline, {
-    req(predictions()) # Ensure we have predictions to save
+    req(predictions())
     baseline_data(predictions())
-    showNotification(
-      "Baseline Locked! Now change inputs and click 'Estimate' to compare.",
-      type = "message"
-    )
+    showNotification("Baseline Locked!", type = "message")
   })
 
   new_patient <- eventReactive(
@@ -336,7 +406,7 @@ server <- function(input, output, session) {
       hyp_val <- if (input$hypertension) "Yes" else "No"
       lip_val <- if (input$hyperlipidemia) "Yes" else "No"
 
-      data.frame(
+      df <- data.frame(
         age = input$age,
         bmi = input$bmi,
         income = input$income,
@@ -356,6 +426,10 @@ server <- function(input, output, session) {
         hypertension = factor(hyp_val, levels = c("No", "Yes")),
         hyperlipidemia = factor(lip_val, levels = c("No", "Yes"))
       )
+      # Copula input must match training data (Scaled by 1000)
+      df$income_cop <- df$income / 1000
+
+      df
     },
     ignoreNULL = FALSE
   )
@@ -363,58 +437,56 @@ server <- function(input, output, session) {
   predictions <- reactive({
     pat <- new_patient()
 
-    # --- VALIDATION ---
-    is_income_valid <- pat$income >= limits$income$min &
-      pat$income <= limits$income$max
-    is_visit_valid <- pat$ndvisit >= limits$ndvisit$min &
-      pat$ndvisit <= limits$ndvisit$max
     validate(
       need(
-        is_income_valid,
-        paste0(
-          "Error: Income must be between $",
-          limits$income$min,
-          " and $",
-          format(limits$income$max, big.mark = ",")
-        )
+        pat$income >= limits$income$min & pat$income <= limits$income$max,
+        "Income out of range"
       ),
       need(
-        is_visit_valid,
-        paste0(
-          "Error: Visits must be between ",
-          limits$ndvisit$min,
-          " and ",
-          limits$ndvisit$max
-        )
+        pat$ndvisit >= limits$ndvisit$min & pat$ndvisit <= limits$ndvisit$max,
+        "Visits out of range"
       )
     )
 
+    # GLM Predictions (Standard predict returns counts/dollars correctly)
     prob_any <- predict(m_part1, newdata = pat, type = "response")
-    cond_cost <- predict(m_part2, newdata = pat, type = "response")
-    expected_total <- prob_any * cond_cost
+    cond_cost_indep <- predict(m_part2, newdata = pat, type = "response")
+    expected_total <- prob_any * cond_cost_indep
     visit_count <- predict(m_count, newdata = pat, type = "response")
+
+    # --- COPULA PREDICTIONS (FIXED) ---
+
+    # Equation 1: Visits (NBII uses Log-Link -> Apply exp)
+    cop_visits_link <- predict(
+      fit_cop,
+      eq = 1,
+      newdata = pat,
+      type = "response"
+    )
+    cop_visits <- exp(cop_visits_link)
+
+    # Equation 2: Cost (Gamma uses Log-Link -> Apply exp)
+    cop_cost_link <- predict(fit_cop, eq = 2, newdata = pat, type = "response")
+    cop_cost <- exp(cop_cost_link)
 
     list(
       prob = prob_any,
-      cond_cost = cond_cost,
+      cond_cost = cond_cost_indep,
+      cop_cost = cop_cost,
       expected_total = expected_total,
-      visits = visit_count
+      visits = visit_count,
+      cop_visits = cop_visits
     )
   })
 
-  # --- DYNAMIC UI OUTPUTS (Handles Comparison Logic) ---
-
+  # --- OUTPUTS ---
   output$total_cost_ui <- renderUI({
     curr <- predictions()$expected_total
     base <- baseline_data()
-
     curr_txt <- paste0("$", format(round(curr, 2), big.mark = ","))
-
     if (is.null(base)) {
-      # No baseline -> Show simple text
-      return(h2(curr_txt, style = "color: #2c3e50; font-weight: bold;"))
+      h2(curr_txt, style = "color: #2c3e50; font-weight: bold;")
     } else {
-      # Baseline exists -> Show comparison
       diff <- curr - base$expected_total
       color <- if (diff > 0) {
         "#e74c3c"
@@ -422,7 +494,7 @@ server <- function(input, output, session) {
         "#27ae60"
       } else {
         "gray"
-      } # Red if cost up, Green if cost down
+      }
       arrow <- if (diff > 0) {
         "▲"
       } else if (diff < 0) {
@@ -430,7 +502,6 @@ server <- function(input, output, session) {
       } else {
         "-"
       }
-
       tagList(
         h2(
           curr_txt,
@@ -456,11 +527,9 @@ server <- function(input, output, session) {
   output$visit_count_ui <- renderUI({
     curr <- predictions()$visits
     base <- baseline_data()
-
     curr_txt <- paste(round(curr, 1), "Visits")
-
     if (is.null(base)) {
-      return(h2(curr_txt, style = "color: #2c3e50; font-weight: bold;"))
+      h2(curr_txt, style = "color: #2c3e50; font-weight: bold;")
     } else {
       diff <- curr - base$visits
       color <- if (diff > 0) {
@@ -477,7 +546,6 @@ server <- function(input, output, session) {
       } else {
         "-"
       }
-
       tagList(
         h2(
           curr_txt,
@@ -498,54 +566,20 @@ server <- function(input, output, session) {
   output$breakdown_table <- renderTable(
     {
       preds <- predictions()
-      base <- baseline_data()
-
-      df <- tibble(
+      tibble(
         Metric = c(
           "Probability of Any Expense",
-          "Estimated Cost if Seen",
+          "Estimated Cost (Conditional)",
           "Final Expected Cost",
           "Expected Visits"
         ),
-        Current = c(
+        Value = c(
           paste0(round(preds$prob * 100, 1), "%"),
           paste0("$", format(round(preds$cond_cost, 2), big.mark = ",")),
           paste0("$", format(round(preds$expected_total, 2), big.mark = ",")),
           round(preds$visits, 2)
         )
       )
-
-      if (!is.null(base)) {
-        df$Baseline = c(
-          paste0(round(base$prob * 100, 1), "%"),
-          paste0("$", format(round(base$cond_cost, 2), big.mark = ",")),
-          paste0("$", format(round(base$expected_total, 2), big.mark = ",")),
-          round(base$visits, 2)
-        )
-
-        # Calculate raw numeric differences for the last column
-        diffs <- c(
-          (preds$prob - base$prob) * 100,
-          preds$cond_cost - base$cond_cost,
-          preds$expected_total - base$expected_total,
-          preds$visits - base$visits
-        )
-
-        # Formatting differences
-        df$Difference = sapply(1:4, function(i) {
-          val <- diffs[i]
-          prefix <- if (val > 0) "+" else ""
-          if (i == 1) {
-            return(paste0(prefix, round(val, 1), "%"))
-          } # Prob
-          if (i == 4) {
-            return(paste0(prefix, round(val, 2)))
-          } # Visits
-          return(paste0(prefix, "$", format(round(val, 2), big.mark = ","))) # Costs
-        })
-      }
-
-      df
     },
     bordered = TRUE,
     striped = TRUE,
@@ -554,13 +588,8 @@ server <- function(input, output, session) {
 
   output$dist_plot <- renderPlot({
     pat_cost <- predictions()$expected_total
-
-    # Calculate Percentile
     fn_percentile <- ecdf(meps_pos$dvexpend)
     pct_val <- fn_percentile(pat_cost)
-    pct_text <- paste0(round(pct_val * 100, 1), "th Percentile")
-    label_text <- paste0("This Patient\n(", pct_text, ")")
-
     ggplot(meps_pos, aes(x = dvexpend)) +
       geom_density(fill = "#3498db", alpha = 0.4) +
       geom_vline(
@@ -573,26 +602,71 @@ server <- function(input, output, session) {
         "text",
         x = pat_cost,
         y = 0,
-        label = label_text,
+        label = paste0(
+          "This Patient\n(",
+          round(pct_val * 100, 1),
+          "th Percentile)"
+        ),
         vjust = -0.5,
         hjust = -0.1,
         color = "#e74c3c",
         angle = 90,
-        fontface = "bold",
-        size = 5
+        fontface = "bold"
       ) +
       scale_x_log10(labels = scales::dollar) +
+      theme_minimal() +
       labs(
-        title = "Patient Expenditure vs. Population Distribution",
-        subtitle = paste0(
-          "Patient is in the ",
-          pct_text,
-          " of positive expenditures"
-        ),
-        x = "Expenditure (Log Scale)",
+        title = "Expenditure Distribution",
+        x = "Log Expenditure",
         y = "Density"
+      )
+  })
+
+  output$copula_comparison_table <- renderTable(
+    {
+      preds <- predictions()
+      tibble(
+        Model = c(
+          "Standard Independent Model (GLM)",
+          "Joint Copula Model (GJRM)"
+        ),
+        `Expected Visits` = c(
+          round(preds$visits, 2),
+          round(preds$cop_visits, 2)
+        ),
+        `Expected Cost (if > 0)` = c(
+          paste0("$", format(round(preds$cond_cost, 2), big.mark = ",")),
+          paste0("$", format(round(preds$cop_cost, 2), big.mark = ","))
+        ),
+        `Correlation (Tau)` = c("Assumed 0", round(tau_val, 3))
+      )
+    },
+    bordered = TRUE,
+    striped = TRUE,
+    width = "100%"
+  )
+
+  output$copula_plot <- renderPlot({
+    preds <- predictions()
+    df_plot <- data.frame(
+      Model = c("Independent", "Copula"),
+      Cost = c(preds$cond_cost, preds$cop_cost)
+    )
+    ggplot(df_plot, aes(x = Model, y = Cost, fill = Model)) +
+      geom_col(width = 0.5) +
+      geom_text(
+        aes(label = paste0("$", round(Cost, 0))),
+        vjust = -0.5,
+        fontface = "bold"
       ) +
-      theme_minimal(base_size = 14)
+      scale_fill_manual(values = c("#95a5a6", "#34495e")) +
+      ylim(0, max(df_plot$Cost) * 1.2) +
+      labs(
+        title = "Impact of Joint Modeling on Cost Prediction",
+        y = "Predicted Cost ($)"
+      ) +
+      theme_minimal(base_size = 14) +
+      theme(legend.position = "none")
   })
 }
 
