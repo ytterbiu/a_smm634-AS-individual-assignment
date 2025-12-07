@@ -2,6 +2,8 @@
 
 Term 1 individual project for Business Analytics (50% of coursework grade).
 
+HTML report: https://ytterbiu.github.io/a_smm634-AS-individual-assignment/
+
 ## R Shiny App (basic dashboard)
 
 > [!IMPORTANT] 
