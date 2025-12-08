@@ -120,7 +120,7 @@ print("   -> Creating meps_pos dataframe...")
 meps_pos <- as.data.frame(dplyr::filter(meps_clean, dvexpend > 0))
 
 if (nrow(meps_pos) == 0) {
-  stop("ERROR: meps_pos has 0 rows!")
+  stop("CRITICAL ERROR: meps_pos has 0 rows!")
 }
 
 # --- LIMITS ---
@@ -139,11 +139,11 @@ limits <- list(
 )
 
 #------------------------------------------------------------------------------
-# 4. MODEL fitting
+# 4. MODEL TRAINING
 #------------------------------------------------------------------------------
-print("STEP 4: Fitting Models...")
+print("STEP 4: Training Models...")
 
-print("   -> Fitting GLMs...")
+print("   -> Training GLMs...")
 m_part1 <- glm(
   has_expense ~ age +
     gender +
@@ -190,7 +190,7 @@ m_count <- glm.nb(
   data = meps_clean
 )
 
-print("   -> Fitting Copula (GJRM)...")
+print("   -> Training Copula (GJRM)...")
 f1 <- dvisit ~ age +
   gender +
   bmi +
@@ -226,10 +226,10 @@ fit_cop <- do.call(gjrm, args_list)
 
 theta_val <- summary(fit_cop)$theta
 tau_val <- 2 / pi * asin(theta_val)
-print(paste("   -> Copula Fitted. Tau =", round(tau_val, 3)))
+print(paste("   -> Copula Trained. Tau =", round(tau_val, 3)))
 
 #------------------------------------------------------------------------------
-# 5. UI
+# 5. UI DEFINITION
 #------------------------------------------------------------------------------
 print("STEP 5: Launching UI...")
 ui <- fluidPage(
@@ -427,7 +427,7 @@ server <- function(input, output, session) {
         hyperlipidemia = factor(lip_val, levels = c("No", "Yes"))
       )
       # Copula input must match training data (Scaled by 1000)
-      df$fit_copop <- df$income / 1000
+      df$income_cop <- df$income / 1000
 
       df
     },
@@ -456,7 +456,7 @@ server <- function(input, output, session) {
 
     # --- COPULA PREDICTIONS (FIXED) ---
 
-    # Equation 1: Visits (Nbin uses log-link -> apply exp)
+    # Equation 1: Visits (NBII uses Log-Link -> Apply exp)
     cop_visits_link <- predict(
       fit_cop,
       eq = 1,
@@ -465,7 +465,7 @@ server <- function(input, output, session) {
     )
     cop_visits <- exp(cop_visits_link)
 
-    # Equation 2: Cost (Gamma uses log-link -> apply exp)
+    # Equation 2: Cost (Gamma uses Log-Link -> Apply exp)
     cop_cost_link <- predict(fit_cop, eq = 2, newdata = pat, type = "response")
     cop_cost <- exp(cop_cost_link)
 

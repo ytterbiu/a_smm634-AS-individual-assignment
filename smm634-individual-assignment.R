@@ -1381,3 +1381,280 @@ ggplot(nb_diag, aes(x = fitted, y = resid)) +
     # title = "Negative Binomial: deviance residuals vs fitted"
   ) +
   theme_minimal()
+
+###############################################################################
+###############################################################################
+###############################################################################
+###############################################################################
+
+# --- clean function
+get_gjrm_coefs <- function(model_obj, equation = 1) {
+  summ <- summary(model_obj)
+
+  # swapping order - tablep1 - count | tablep2 is (Gamma)
+  if (equation == 1) {
+    raw <- as.data.frame(summ$tableP1)
+  } else {
+    raw <- as.data.frame(summ$tableP2)
+  }
+
+  raw %>%
+    rownames_to_column("term") %>%
+    dplyr::select(term, Estimate, `Std. Error`) %>%
+    dplyr::rename(estimate = Estimate, std.error = `Std. Error`) %>%
+    mutate(model = "Joint (Copula)")
+}
+
+# --- extract base models
+# using m_count_pos
+base_visits <- broom::tidy(m_count_pos) %>%
+  dplyr::select(term, estimate, std.error) %>%
+  mutate(model = "Independent (Base)")
+
+base_cost <- broom::tidy(m_part2_pos) %>%
+  dplyr::select(term, estimate, std.error) %>%
+  mutate(model = "Independent (Base)")
+
+# --- extract Copula models
+cop_visits <- get_gjrm_coefs(fit_cop, equation = 1)
+cop_cost <- get_gjrm_coefs(fit_cop, equation = 2)
+
+# --- combine
+# visit frequency
+comparison_visits <- bind_rows(base_visits, cop_visits) %>%
+  mutate(outcome = "Visits (Count)")
+
+# expenditure
+comparison_cost <- bind_rows(base_cost, cop_cost) %>%
+  mutate(outcome = "Expenditure (Gamma)")
+
+# full
+comparison_all <- bind_rows(comparison_visits, comparison_cost)
+
+#---------------------------------- Plotting ----------------------------------#
+# filter out intercepts (for better scaling)
+plot_data <- comparison_all %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    # clean labels
+    term_clean = str_remove_all(
+      term,
+      "education_cat_detailed|ethnicity|gender|region"
+    ),
+    # calculate CI for error bars
+    conf_low = estimate - 1.96 * std.error,
+    conf_high = estimate + 1.96 * std.error
+  )
+
+# --- Plot ---
+# define plot order
+var_order <- c(
+  # --- Demographics ---
+  "age",
+  "genderMale",
+  "bmi",
+
+  # --- Ethnicity (Grouped) ---
+  "Black",
+  "Native American",
+  "Others",
+
+  # --- Socio-Economic ---
+  "income",
+  "High School Graduate",
+  "Some College",
+  "College Graduate",
+  "Post-Graduate",
+
+  # --- Health status ---
+  "generalVGood",
+  "generalGood",
+  "generalFair",
+  "generalPoor",
+  "mentalVGood",
+  "mentalGood",
+  "mentalFair",
+  "mentalPoor",
+  "hypertensionYes",
+  "hyperlipidemiaYes",
+
+  # --- other ---
+  "ndvisit",
+  "regionMidwest",
+  "regionSouth",
+  "regionWest"
+)
+
+plot_data_ordered <- comparison_all %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    # clean str
+    term_clean = str_remove_all(
+      term,
+      "education_cat_detailed|ethnicity|gender|region"
+    ),
+
+    # 95% CIs
+    conf_low = estimate - 1.96 * std.error,
+    conf_high = estimate + 1.96 * std.error,
+
+    # --- apply factor order
+    term_clean = factor(term_clean, levels = rev(var_order))
+  ) %>%
+  # drop filtered / mistmatched rows
+  filter(!is.na(term_clean))
+
+# plot
+coeffCompar <- ggplot(
+  plot_data_ordered,
+  aes(x = estimate, y = term_clean, color = model, shape = model)
+) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+
+  geom_point(position = position_dodge(width = 0.6), size = 2) +
+  geom_errorbarh(
+    aes(xmin = conf_low, xmax = conf_high),
+    position = position_dodge(width = 0.6),
+    height = 0.3
+  ) +
+
+  # faceting
+  facet_wrap(~outcome, scales = "free_x") +
+  scale_color_brewer(palette = "Set1") +
+
+  labs(
+    title = "SMM634 coefficient comparison: basic vs. copula models",
+    subtitle = "Comparing estimates just for positive vals (meps_pos = dvexpend > 0)",
+    x = "Raw coefficient estimate (log scale)", # Clarified label
+    y = NULL,
+    color = "Model Type",
+    shape = "Model Type"
+  ) +
+
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.major.y = element_line(color = "gray90"),
+    strip.text = element_text(face = "bold", size = 11)
+  )
+
+ggsave(
+  filename = file.path("fig", "basicVsCopulaCoeff.png"),
+  plot = coeffCompar,
+  width = 7,
+  height = 5,
+  dpi = 300
+)
+
+#----------------------------------- Table ------------------------------------#
+# --- prepare data for CI table ---
+tab_ci_compare <- comparison_all %>%
+  pivot_wider(
+    id_cols = c(term, outcome),
+    names_from = model,
+    values_from = c(estimate, std.error)
+  ) %>%
+  mutate(
+    # --- calculate 95% CI
+    # independent (Base)
+    base_lo = `estimate_Independent (Base)` -
+      1.96 * `std.error_Independent (Base)`,
+    base_hi = `estimate_Independent (Base)` +
+      1.96 * `std.error_Independent (Base)`,
+
+    # Joint (Copula)
+    cop_lo = `estimate_Joint (Copula)` - 1.96 * `std.error_Joint (Copula)`,
+    cop_hi = `estimate_Joint (Copula)` + 1.96 * `std.error_Joint (Copula)`,
+
+    # --- check overlap
+    overlap_check = ifelse(
+      base_lo > cop_hi | cop_lo > base_hi,
+      "**No**",
+      "Yes"
+    ),
+    term_clean = str_remove_all(
+      term,
+      "education_cat_detailed|ethnicity|gender|region"
+    )
+  ) %>%
+
+  # format
+  mutate(
+    # Create string "[Low, High]"
+    base_ci_str = sprintf("[%.3f, %.3f]", base_lo, base_hi),
+    cop_ci_str = sprintf("[%.3f, %.3f]", cop_lo, cop_hi)
+  ) %>%
+
+  # select and order columns
+  dplyr::select(outcome, term_clean, base_ci_str, cop_ci_str, overlap_check) %>%
+  arrange(outcome, term_clean)
+
+# --- Markdown table ---
+knitr::kable(
+  tab_ci_compare,
+  format = "markdown",
+  caption = "Comparison of 95% Confidence Intervals: Independent vs. Copula Models",
+  col.names = c(
+    "Outcome",
+    "Variable",
+    "Independent 95% CI",
+    "Copula 95% CI",
+    "Overlap?"
+  )
+)
+
+###############################################################################
+# Compare the two models again
+###############################################################################
+# --- get log-likelihoods
+# joint Likelihood
+ll_joint <- logLik(fit_cop)
+
+# independent likelihood (sum of two parts)
+ll_indep <- logLik(m_count_pos) + logLik(m_part2_pos)
+
+# --- likelihood ratio test (LRT)
+# Statistic = 2 * (Joint_LL - Independent_LL)
+lrt_stat <- 2 * (as.numeric(ll_joint) - as.numeric(ll_indep))
+
+# p-value
+# assuming df = 1 (because joint model adds 1 parameter: theta/tau)
+p_val <- pchisq(lrt_stat, df = 1, lower.tail = FALSE)
+
+# --- AIC
+aic_joint <- AIC(fit_cop)
+aic_indep <- AIC(m_count_pos) + AIC(m_part2_pos)
+aic_diff <- aic_indep - aic_joint
+
+library(glue)
+
+cat(glue(
+  "
+Model comparison: Independent vs Joint
+{strrep('=', 45)}
+Joint model log-likelihood:        {sprintf('%.2f', ll_joint)}
+Independent model log-likelihood:  {sprintf('%.2f', ll_indep)}
+{strrep('-', 45)}
+Likelihood ratio test statistic:   {sprintf('%.2f', lrt_stat)}
+p-value:                           {format.pval(p_val, eps = .001)}
+{strrep('-', 45)}
+AIC (Independent):                 {sprintf('%.2f', aic_indep)}
+AIC (Joint):                       {sprintf('%.2f', aic_joint)}
+AIC difference (Indep - Joint):    {sprintf('%.2f', aic_diff)}
+{strrep('=', 45)}
+"
+))
+
+if (aic_diff > 10) {
+  cat(
+    "Takeaway: The joint copula model appears clearly better supported by the data.\n\n"
+  )
+} else if (aic_diff > 2) {
+  cat(
+    "Takeaway: The joint copula model looks better, though the improvement is modest.\n\n"
+  )
+} else {
+  cat(
+    "Takeaway: The independent model seems adequate; any gain from the joint model is small.\n\n"
+  )
+}
