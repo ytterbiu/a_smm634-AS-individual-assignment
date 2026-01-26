@@ -1,7 +1,7 @@
 # ==============================================================================
-# SMM047 Probability and Mathematical Statistics (Subject CS1)
+# SMM634 Business Analytics
 # Individual Coursework
-# Author: Benjamin Evans
+# Author:       Benjamin Evans
 # Professor:    Professor Rosalba Radice
 # Institution:  Bayes Business School - City St George's, University of London
 # Date:         05/Dec/2025
