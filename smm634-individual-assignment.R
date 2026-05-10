@@ -1510,33 +1510,33 @@ coeffCompar <- ggplot(
   aes(x = estimate, y = term_clean, color = model, shape = model)
 ) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
-
   geom_point(position = position_dodge(width = 0.6), size = 2) +
   geom_errorbarh(
     aes(xmin = conf_low, xmax = conf_high),
     position = position_dodge(width = 0.6),
     height = 0.3
   ) +
-
   # faceting
   facet_wrap(~outcome, scales = "free_x") +
   scale_color_brewer(palette = "Set1") +
-
   labs(
-    title = "SMM634 coefficient comparison: basic vs. copula models",
-    subtitle = "Comparing estimates just for positive vals (meps_pos = dvexpend > 0)",
+    # title = "SMM634 coefficient comparison: basic vs. copula models",
+    # subtitle = "Comparing estimates just for positive vals (meps_pos = dvexpend > 0)",
     x = "Raw coefficient estimate (log scale)", # Clarified label
     y = NULL,
     color = "Model Type",
     shape = "Model Type"
   ) +
-
   theme_minimal() +
   theme(
     legend.position = "bottom",
-    panel.grid.major.y = element_line(color = "gray90"),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    # panel.grid.major.y = element_line(color = "gray90"),
     strip.text = element_text(face = "bold", size = 11)
   )
+
+coeffCompar
 
 ggsave(
   filename = file.path("fig", "basicVsCopulaCoeff.png"),
